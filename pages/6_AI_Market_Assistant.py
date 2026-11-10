@@ -107,6 +107,6 @@ with st.expander("Security, privacy and limitations"):
         "- AI provider API keys are read from Streamlit secrets and are not stored in the database.\n"
         "- The request sends the selected symbol, scanner result (if present), optional MTF matrix and up to 20 recent daily OHLC candles to the chosen AI provider.\n"
         "- Broker passwords, API tokens, holdings, funds and order details are not sent.\n"
-        "- AI can make mistakes and does not provide verified exchange-grade live quotes, news or guaranteed signals.\n"
+        "- Gemini free-tier requests may be used to improve Google products under the current free-tier terms; do not send account identifiers or private financial information.\n- AI can make mistakes and does not provide verified exchange-grade live quotes, news or guaranteed signals.\n"
         "- The assistant only explains and summarises. It cannot place, modify or cancel orders."
     )
