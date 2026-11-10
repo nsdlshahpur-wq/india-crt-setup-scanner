@@ -66,6 +66,51 @@ Pushes to `main` run:
 - This is a Python implementation of the supplied strategy's intent, not a byte-for-byte Pine execution clone. Differences can occur due to candle confirmation, pivot ties, vendor histories, corporate actions, and missing symbols.
 - Validate signals on your broker's chart before considering any trade. This is a screening tool, not investment advice or a guaranteed signal system.
 
+## Added dashboard modules
+
+The Streamlit navigation also includes:
+
+- **Backtesting & Performance** — replays the main daily three-month CRT scanner on one selected symbol. Signals are known at completed daily close and simulated entries occur at the next session open. If stop and target are both touched within the same daily candle, the backtest assumes stop first. It applies a configurable transaction-cost/slippage estimate, risk-based sizing and reports win rate, profit factor, average R, realized-equity maximum drawdown and trade count. It does not yet backtest all five MTF pairs.
+- **Watchlist & Alerts** — stores a local watchlist, manually scans up to 10 symbols per run for valid CRT / entry-ready MTF states, and records new in-app alerts. It does not send browser push, SMS, WhatsApp or email notifications.
+- **Trade Journal** — records manual entries and exits, costs, realized P&L and R multiple. It never sends broker orders.
+- **AI Market Assistant** — optional Gemini or Groq connector. It explains the selected symbol's scanner result and recent daily OHLC; it does not independently scan every exchange, guarantee live data, execute trades or replace the market-data feed.
+- **Multiple Broker Connections** — read-only profile checks for Zerodha Kite, Upstox and DhanHQ. This does not yet switch the scanner to broker candle feeds and does not place or modify orders.
+
+## Optional AI setup
+
+Create an API key with Google AI Studio or Groq, then add it in Streamlit app settings → **Secrets**. Example:
+
+\`\`\`toml
+[ai]
+gemini_api_key = "YOUR_GEMINI_API_KEY"
+groq_api_key = "YOUR_GROQ_API_KEY"
+\`\`\`
+
+The AI page uses Gemini \`gemini-3.5-flash-lite\` or Groq \`openai/gpt-oss-20b\` by default; model IDs can be edited in the page. Free-tier quotas, eligible models and data-use terms are controlled by each provider and can change. Gemini's current free-tier terms state that submitted content may be used to improve Google products. Do not send account identifiers, broker credentials, holdings or private financial information to an AI provider.
+
+## Optional broker profile connections
+
+Add only the broker sections you use to Streamlit Secrets. Never put API keys or access tokens in Python source files or commit them to GitHub.
+
+\`\`\`toml
+[brokers.zerodha]
+api_key = "YOUR_KITE_API_KEY"
+access_token = "YOUR_KITE_ACCESS_TOKEN"
+
+[brokers.upstox]
+access_token = "YOUR_UPSTOX_ACCESS_TOKEN"
+
+[brokers.dhan]
+client_id = "YOUR_DHAN_CLIENT_ID"
+access_token = "YOUR_DHAN_ACCESS_TOKEN"
+\`\`\`
+
+The broker page calls only read-only profile endpoints. Access tokens must be generated/renewed through each broker's official authentication process. Current scanner candles still come from Yahoo Finance, not from those broker connections. For reference: [Kite Connect pricing](https://zerodha.com/products/api), [Upstox OAuth docs](https://upstox.com/developer/api-documentation/authentication/), and [DhanHQ authentication](https://dhanhq.co/docs/v2/authentication/).
+
+## Local journal / watchlist storage
+
+Watchlist items, alert history and journal trades use SQLite at \`data/crt_dashboard.sqlite3\` by default. You can change the path with the \`CRT_APP_DB\` environment variable. The database file is excluded from Git. SQLite persists on a machine with persistent disk; some hosted app environments may reset local files during redeploy/restart. Export journal and alert CSV backups regularly. For a public or multi-user deployment, add authenticated users and a managed database with per-user access controls before storing real financial records.
+
 ## Project files
 
 - `app.py` — Streamlit dashboard and universe selection.
