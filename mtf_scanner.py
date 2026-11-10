@@ -160,9 +160,13 @@ def _timeframe_data(
 
 
 def _find_sweep(crt: pd.DataFrame, timeframe: str) -> dict[str, Any] | None:
+    """Return only a recent, still-valid sweep of the immediately preceding CRT candle."""
     if len(crt) < 3:
         return None
-    start = max(1, len(crt) - 12)
+
+    # Scan recent completed bars; do not revive a sweep that is too old for the
+    # selected CRT period. A pair is explicitly the current bar vs prior bar.
+    start = max(1, len(crt) - 3)
     for i in range(len(crt) - 1, start - 1, -1):
         ref = crt.iloc[i - 1]
         bar = crt.iloc[i]
@@ -170,56 +174,84 @@ def _find_sweep(crt: pd.DataFrame, timeframe: str) -> dict[str, Any] | None:
         bear = float(bar["High"]) > float(ref["High"]) and float(bar["Close"]) < float(ref["High"])
         if bull and bear:
             return {"ambiguous": True, "index": i}
-        if bull or bear:
-            direction = 1 if bull else -1
-            invalidated = False
-            for j in range(i + 1, len(crt)):
-                close = float(crt["Close"].iloc[j])
-                if (direction == 1 and close < float(bar["Low"])) or (
-                    direction == -1 and close > float(bar["High"])
-                ):
-                    invalidated = True
-                    break
-            return {
-                "ambiguous": False,
-                "direction": direction,
-                "index": i,
-                "reference": ref,
-                "sweep": bar,
-                "sweep_time": crt.index[i],
-                "sweep_end": crt.index[i] + DURATIONS[timeframe],
-                "invalidated": invalidated,
-            }
+        if not (bull or bear):
+            continue
+
+        direction = 1 if bull else -1
+        # Invalidation is a completed CRT candle closing beyond the sweep extreme.
+        invalidated = any(
+            (direction == 1 and float(crt["Close"].iloc[j]) < float(bar["Low"]))
+            or (direction == -1 and float(crt["Close"].iloc[j]) > float(bar["High"]))
+            for j in range(i + 1, len(crt))
+        )
+        return {
+            "ambiguous": False,
+            "direction": direction,
+            "index": i,
+            "reference": ref,
+            "sweep": bar,
+            "sweep_time": crt.index[i],
+            "sweep_end": crt.index[i] + DURATIONS[timeframe],
+            "invalidated": invalidated,
+        }
     return None
 
 
 def _entry_confirmation(entry: pd.DataFrame, sweep_end: pd.Timestamp, direction: int) -> dict[str, Any]:
+    """Check for a post-sweep structure break and FVG, with a fresh signal window."""
     after = entry.loc[entry.index >= sweep_end].copy()
     if len(after) < 8:
-        return {"confirmed": False, "fvg": None, "data": after, "reason": "Entry timeframe has fewer than 8 post-sweep candles"}
-    last = after.iloc[-1]
-    prior = after.iloc[-7:-1]
-    if direction == 1:
-        structure = float(last["Close"]) > float(prior["High"].max()) and float(last["Close"]) > float(last["Open"])
-        fvg = None
-        for i in range(len(after) - 1, max(1, len(after) - 11), -1):
-            if i >= 2 and float(after["Low"].iloc[i]) > float(after["High"].iloc[i - 2]):
-                fvg = (float(after["High"].iloc[i - 2]), float(after["Low"].iloc[i]))
-                break
-    else:
-        structure = float(last["Close"]) < float(prior["Low"].min()) and float(last["Close"]) < float(last["Open"])
-        fvg = None
-        for i in range(len(after) - 1, max(1, len(after) - 11), -1):
-            if i >= 2 and float(after["High"].iloc[i]) < float(after["Low"].iloc[i - 2]):
-                fvg = (float(after["High"].iloc[i]), float(after["Low"].iloc[i - 2]))
-                break
+        return {
+            "confirmed": False,
+            "fvg": None,
+            "data": after,
+            "reason": "Entry timeframe has fewer than 8 post-sweep candles",
+        }
+
+    # Evaluate completed bars in a bounded recent window. The structure break and
+    # FVG must occur after the CRT sweep, not merely coexist somewhere in history.
+    scan_start = max(6, len(after) - 12)
+    found = None
+    for i in range(scan_start, len(after)):
+        bar = after.iloc[i]
+        prior = after.iloc[i - 6:i]
+        if direction == 1:
+            structure = float(bar["Close"]) > float(prior["High"].max()) and float(bar["Close"]) > float(bar["Open"])
+            fvg = (
+                (float(after["High"].iloc[i - 2]), float(after["Low"].iloc[i]))
+                if i >= 2 and float(after["Low"].iloc[i]) > float(after["High"].iloc[i - 2])
+                else None
+            )
+        else:
+            structure = float(bar["Close"]) < float(prior["Low"].min()) and float(bar["Close"]) < float(bar["Open"])
+            fvg = (
+                (float(after["High"].iloc[i]), float(after["Low"].iloc[i - 2]))
+                if i >= 2 and float(after["High"].iloc[i]) < float(after["Low"].iloc[i - 2])
+                else None
+            )
+        if structure and fvg is not None:
+            found = {"index": i, "fvg": fvg}
+            break
+
+    if found is None:
+        last = after.iloc[-1]
+        return {
+            "confirmed": False,
+            "structure": False,
+            "fvg": None,
+            "data": after,
+            "last_time": after.index[-1],
+            "last_close": float(last["Close"]),
+        }
+
+    bar = after.iloc[found["index"]]
     return {
-        "confirmed": bool(structure and fvg is not None),
-        "structure": bool(structure),
-        "fvg": fvg,
+        "confirmed": True,
+        "structure": True,
+        "fvg": found["fvg"],
         "data": after,
-        "last_time": after.index[-1],
-        "last_close": float(last["Close"]),
+        "last_time": after.index[found["index"]],
+        "last_close": float(bar["Close"]),
     }
 
 
