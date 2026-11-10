@@ -22,7 +22,7 @@ with st.sidebar:
     batch_size = st.slider("Batch size", 10, 80, 30, 10, key="mtf_batch")
     st.caption("Yahoo Finance data can be delayed, incomplete, rate-limited, or unavailable for some tickers.")
 
-if st.button("🔎 Scan Multi-Timeframe CRT", type="primary):
+if st.button("🔎 Scan Multi-Timeframe CRT", type="primary"):
     try:
         with st.spinner("Preparing symbols and downloading candles..."):
             universe = make_universe(universe_mode, custom_symbols=symbols_text)
