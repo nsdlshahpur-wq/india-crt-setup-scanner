@@ -12,7 +12,7 @@ from universe import make_universe
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
-st.caption("Monthly CRT Bias  →  Daily Liquidity Sweep  →  Displacement Entry")
+st.caption("3-Month CRT: M1 range → M2 sweep/reclaim → M3 Daily CHoCH → FVG + IFVG + OB retest")
 
 with st.sidebar:
     st.header("Scanner Settings")
@@ -172,14 +172,14 @@ if "scan_results" in st.session_state:
     else:
         stage_filter = st.multiselect(
             "Show stages",
-            ["BUY", "SELL", "Wait Entry", "Wait Sweep", "-"],
+            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "-"],
             default=["BUY", "SELL", "Wait Entry", "Wait Sweep"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
             "Symbol", "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
-            "T2 (M2 H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
-            "M2 Close", "Sweep Date", "Entry Date", "Last Candle",
+            "T2 (M1 H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
+            "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]]
         st.dataframe(
