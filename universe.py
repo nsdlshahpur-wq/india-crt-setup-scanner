@@ -17,10 +17,12 @@ import requests
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 NSE_CACHE_FILE = DATA_DIR / "EQUITY_L.csv"
+NSE_SME_CACHE_FILE = DATA_DIR / "SME_EQUITY_L.csv"
 BSE_CACHE_FILE = DATA_DIR / "BSE_EQ_SCRIP.csv"
 BSE_SOURCE_FILE = DATA_DIR / "BSE_EQ_SCRIP_SOURCE.txt"
 NSE_HOME = "https://www.nseindia.com/"
 NSE_EQUITY_CSV = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+NSE_SME_CSV = "https://nsearchives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv"
 BSE_SCRIP_ZIP = "https://www.bseindia.com/downloads/Help/file/scrip.zip"
 
 # Yahoo ticker mappings are kept separate from the official catalog. A catalog
@@ -208,6 +210,50 @@ def get_nse_equity_universe(force_refresh: bool = False) -> pd.DataFrame:
         raise RuntimeError("NSE EQ list is unavailable and no cache exists.") from exc
 
 
+def _read_nse_sme_csv(content: bytes) -> pd.DataFrame:
+    """Parse NSE's separate SME equity-segment security list."""
+    frame = pd.read_csv(io.BytesIO(content), dtype=str)
+    frame.columns = [re.sub(r"[^A-Z0-9]", "", str(c).upper()) for c in frame.columns]
+    if "SYMBOL" not in frame.columns:
+        raise ValueError("NSE SME CSV did not contain SYMBOL")
+    name_col = next((c for c in ["NAMEOFCOMPANY", "COMPANYNAME", "NAME", "ISSUERNAME"] if c in frame.columns), None)
+    symbols = frame["SYMBOL"].fillna("").astype(str).str.strip()
+    names = frame[name_col].fillna(symbols).astype(str).str.strip() if name_col else symbols
+    result = pd.DataFrame({"SYMBOL": symbols, "NAME": names})
+    result = result[result["SYMBOL"].ne("") & result["SYMBOL"].str.lower().ne("nan")]
+    result = result.drop_duplicates(subset=["SYMBOL"]).sort_values("SYMBOL").reset_index(drop=True)
+    if result.empty:
+        raise ValueError("NSE SME CSV contained no symbols")
+    return result
+
+
+def get_nse_sme_universe(force_refresh: bool = False) -> pd.DataFrame:
+    """Fetch the official NSE SME equity list, with a 24-hour local cache."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cached = None
+    if NSE_SME_CACHE_FILE.exists():
+        try:
+            cached = _read_nse_sme_csv(NSE_SME_CACHE_FILE.read_bytes())
+            fresh = time.time() - NSE_SME_CACHE_FILE.stat().st_mtime < 24 * 60 * 60
+            if not force_refresh and fresh and not cached.empty:
+                return cached
+        except Exception:
+            cached = None
+    session = requests.Session()
+    headers = _headers(NSE_HOME)
+    try:
+        session.get(NSE_HOME, headers=headers, timeout=20)
+        response = session.get(NSE_SME_CSV, headers=headers, timeout=30)
+        response.raise_for_status()
+        frame = _read_nse_sme_csv(response.content)
+        NSE_SME_CACHE_FILE.write_bytes(response.content)
+        return frame
+    except Exception as exc:
+        if cached is not None and not cached.empty:
+            return cached
+        raise RuntimeError("NSE SME list is unavailable and no cache exists.") from exc
+
+
 def _normalise_columns(frame: pd.DataFrame) -> dict[str, str]:
     return {re.sub(r"[^A-Z0-9]", "", str(col).upper()): col for col in frame.columns}
 
@@ -377,7 +423,8 @@ def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
     """
     rows: list[dict[str, str | bool]] = []
     want_nse = mode in {
-        "All NSE EQ stocks", "All NSE + BSE stocks", "All India stocks + indices",
+        "All NSE EQ stocks", "All NSE EQ + SME stocks", "All NSE + BSE stocks",
+        "All NSE + BSE stocks + SME", "All India stocks + indices",
         "All NSE + BSE stocks + all indices",
     }
     want_bse = mode in {
@@ -395,6 +442,21 @@ def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
             rows.append({
                 "Symbol": f"{item.SYMBOL}.NS", "Name": item.NAME, "Type": "Stock",
                 "Exchange": "NSE", "Category": "Equity EQ", "DataAvailable": True,
+            })
+
+    if want_nse:
+        try:
+            sme_stocks = get_nse_sme_universe()
+            for item in sme_stocks.itertuples(index=False):
+                rows.append({
+                    "Symbol": f"{item.SYMBOL}.NS", "Name": item.NAME, "Type": "Stock",
+                    "Exchange": "NSE-SME", "Category": "SME", "DataAvailable": True,
+                })
+        except Exception as exc:
+            rows.append({
+                "Symbol": "", "Name": f"NSE SME universe unavailable: {str(exc)[:180]}",
+                "Type": "Source warning", "Exchange": "NSE-SME", "Category": "Data source",
+                "DataAvailable": False,
             })
 
     if want_bse:
