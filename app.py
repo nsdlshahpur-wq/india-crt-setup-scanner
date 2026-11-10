@@ -243,7 +243,7 @@ if "scan_results" in st.session_state:
                         ("Entry", setup_row.get("Entry"), "green", "solid"),
                         ("Stop Loss", setup_row.get("SL"), "red", "solid"),
                         ("Target 1", setup_row.get("T1 (2R)"), "green", "dash"),
-                        ("Target 2", setup_row.get("T2 (M2 H/L)"), "purple", "dash"),
+                        ("M1 Full-Month Target", setup_row.get("Target (M1 Monthly H/L)"), "purple", "dash"),
                     ]
                     for label, value, color, dash in levels:
                         if pd.notna(value) and isinstance(value, (int, float)) and value > 0:
