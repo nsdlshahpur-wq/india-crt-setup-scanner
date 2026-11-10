@@ -135,6 +135,12 @@ def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
     assert len(unmapped) > 50
     assert (unmapped["Symbol"] == "").all()
 
+    stock_only = universe.make_universe("All NSE + BSE stocks + SME")
+    assert "RELIANCE.NS" in stock_only["Symbol"].tolist()
+    assert "ABC.NS" in stock_only["Symbol"].tolist()
+    assert "TCS.BO" in stock_only["Symbol"].tolist()
+    assert not (stock_only["Type"] == "Index").any()
+
 
 
 def test_nse_sme_csv_parser():
