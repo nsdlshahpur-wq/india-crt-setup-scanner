@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import time as dtime
 from typing import Any
 from zoneinfo import ZoneInfo
-import math
 
 import numpy as np
 import pandas as pd
@@ -32,7 +31,14 @@ def _normalise_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     data = frame.copy()
     if isinstance(data.columns, pd.MultiIndex):
-        data.columns = [str(c[-1] if str(c[-1]).lower() in {"open", "high", "low", "close", "volume"} else c[0]).title() for c in data.columns]
+        # yfinance may return either (Price, Ticker) or (Ticker, Price).
+        price_names = {"open", "high", "low", "close", "volume"}
+        flattened = []
+        for col in data.columns:
+            parts = [str(part) for part in col]
+            price = next((part for part in parts if part.lower() in price_names), parts[0])
+            flattened.append(price.title())
+        data.columns = flattened
     data.columns = [str(c).strip().title() for c in data.columns]
     required = ["Open", "High", "Low", "Close"]
     if not all(col in data.columns for col in required):
