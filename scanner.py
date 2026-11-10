@@ -139,7 +139,7 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                         confirm=data.Close.iloc[i]>data.Open.iloc[i] and data.Close.iloc[i]>zone_high if direction==1 else data.Close.iloc[i]<data.Open.iloc[i] and data.Close.iloc[i]<zone_low
                         if touched and confirm:
                             entry=float(data.Close.iloc[i]); entry_date=data.index[i].date().isoformat()
-                            sl=float(data.Low.iloc[m2_idxs].min()) if direction==1 and len(m2_idxs) else (float(data.High.iloc[m2_idxs].max()) if len(m2_idxs) else (ctx["m2_low"] if direction==1 else ctx["m2_high"]))
+                            sl=float(ctx["sweep_low"]) if direction==1 and pd.notna(ctx.get("sweep_low")) else (float(ctx["sweep_high"]) if direction==-1 and pd.notna(ctx.get("sweep_high")) else (ctx["m2_low"] if direction==1 else ctx["m2_high"]))
                             stage=3; choch_date=data.index[ch_idx].date().isoformat(); sweep_date=ctx["m2_period"]; break
                 else: stage=2
             else: stage=1
@@ -151,5 +151,5 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
         "Target (M1 Monthly H/L)":target,"Invalidation":ctx["m1_low"] if direction==1 else (ctx["m1_high"] if direction==-1 else np.nan),
         "M1 High":ctx["m1_high"],"M1 Low":ctx["m1_low"],"M2 High":ctx["m2_high"],"M2 Low":ctx["m2_low"],
         "M2 Close":ctx["m2_close"],"M1 Month":ctx["m1_period"],"M2 Month":ctx["m2_period"],"M3 Month":ctx["m3_period"],
-        "Sweep Date":sweep_date,"CHoCH Date":choch_date,"Entry Date":entry_date,"Zone Low":zone_low,"Zone High":zone_high,
+        "Sweep Date":sweep_date,"Sweep Candle High":ctx.get("sweep_high",np.nan),"Sweep Candle Low":ctx.get("sweep_low",np.nan),"CHoCH Date":choch_date,"Entry Date":entry_date,"Zone Low":zone_low,"Zone High":zone_high,
         "Last Candle":data.index[-1].date().isoformat()}
