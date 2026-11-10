@@ -183,7 +183,7 @@ if "scan_results" in st.session_state:
             "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]]
-        st.caption("BUY / SELL या किसी setup की row पर क्लिक करें—नीचे उसी शेयर का CRT chart और setup levels खुलेंगे।")
+        st.caption("BUY / SELL या किसी setup की row select करें, फिर नीचे TradingView chart खोलें।")
         st.dataframe(
             view,
             use_container_width=True,
@@ -200,6 +200,29 @@ if "scan_results" in st.session_state:
                 "Invalidation": st.column_config.NumberColumn(format="₹%.2f"),
             },
         )
+        selected_rows_for_tv = st.session_state.get("setup_results_table", {}).get("selection", {}).get("rows", [])
+        if selected_rows_for_tv:
+            try:
+                selected_tv_row = view.iloc[int(selected_rows_for_tv[0])]
+                raw_tv_symbol = str(selected_tv_row["Symbol"]).strip()
+                tv_exchange = str(selected_tv_row.get("Exchange", "NSE")).upper()
+                if raw_tv_symbol.startswith("^"):
+                    tv_index_map = {
+                        "^NSEI": "NSE:NIFTY",
+                        "^NSEBANK": "NSE:BANKNIFTY",
+                        "^BSESN": "BSE:SENSEX",
+                    }
+                    tv_symbol = tv_index_map.get(raw_tv_symbol, raw_tv_symbol.lstrip("^"))
+                elif raw_tv_symbol.endswith(".NS"):
+                    tv_symbol = "NSE:" + raw_tv_symbol[:-3]
+                elif raw_tv_symbol.endswith(".BO"):
+                    tv_symbol = "BSE:" + raw_tv_symbol[:-3]
+                else:
+                    tv_symbol = ("BSE:" if "BSE" in tv_exchange else "NSE:") + raw_tv_symbol
+                tv_url = "https://www.tradingview.com/chart/?symbol=" + tv_symbol.replace(" ", "%20")
+                st.link_button(f"📉 Open {tv_symbol} on TradingView", tv_url, type="primary")
+            except (IndexError, KeyError, ValueError):
+                st.info("TradingView link बनाने के लिए पहले setup row select करें।")
         csv = view.to_csv(index=False).encode("utf-8-sig")
         st.download_button("⬇️ Download CSV", csv, file_name="india_crt_scan_results.csv", mime="text/csv")
 
