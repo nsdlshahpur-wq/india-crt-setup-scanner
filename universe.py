@@ -216,7 +216,7 @@ def _parse_bse_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame is None or frame.empty:
         raise ValueError("Empty BSE scrip file")
     cols = _normalise_columns(frame)
-    symbol_keys = ["INSTRUMENTCODE", "SCRIPID", "SECURITYID", "TRADINGSYMBOL", "SYMBOL", "SCNAME"]
+    symbol_keys = ["INSTRUMENTCODE", "SCRIPID", "SECURITYID", "TRADINGSYMBOL", "SYMBOL"]
     name_keys = ["SCRIPNAME", "SECURITYNAME", "ISSUERNAME", "NAME", "SCNAME"]
     type_keys = ["SECURITYTYPEFLAG", "SECURITYTYPE", "INSTRUMENTTYPE"]
     group_keys = ["GROUPNAME", "SCRIPGROUP", "GROUP"]
