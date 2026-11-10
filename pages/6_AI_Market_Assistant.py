@@ -92,7 +92,12 @@ if st.button("✨ Analyse with AI", type="primary", disabled=not bool(api_key.st
         history.append({"Question": question, "Answer": answer, "Symbol": symbol, "Provider": provider})
         st.session_state["ai_market_history"] = history[-10:]
     except Exception as exc:
-        st.error(f"AI analysis failed: {exc}")
+        # Do not echo provider URLs or query strings because Gemini API keys
+        # are passed in the request URL by the provider contract.
+        st.error(
+            f"AI analysis failed ({type(exc).__name__}). Check the API key, selected model, "
+            "provider quota and network connection. Secret values are not shown."
+        )
 
 history = st.session_state.get("ai_market_history", [])
 if history:
