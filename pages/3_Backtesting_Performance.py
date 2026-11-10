@@ -10,7 +10,7 @@ from scanner import ScanConfig
 
 st.set_page_config(page_title="CRT Backtesting & Performance", page_icon="📊", layout="wide")
 st.title("📊 Backtesting & Performance")
-st.caption("Historical replay of the main 3-month CRT → Daily CHoCH → FVG / IFVG / OB retest scanner.")
+st.caption("3-year historical replay: monthly CRT sweep/reclaim → Daily CHoCH → FVG retest; sweep-candle SL; opposite CRT liquidity target.")
 
 scan_map = st.session_state.get("scan_price_map", {})
 scan_names = st.session_state.get("scan_symbol_names", {})
@@ -28,10 +28,10 @@ else:
 
 with st.sidebar:
     st.subheader("Backtest settings")
-    period_bars = st.selectbox("Backtest period", [126, 252, 500, 750, 1000], index=2, format_func=lambda n: f"{n} daily candles")
+    period_bars = st.selectbox("Backtest period", [756], index=0, format_func=lambda n: "3 years (~756 daily candles)")
     capital = st.number_input("Initial capital (₹)", min_value=10000.0, value=100000.0, step=10000.0)
     risk_pct = st.slider("Risk per trade (%)", 0.25, 3.0, 1.0, 0.25)
-    target_r = st.selectbox("Target (R)", [1.5, 2.0, 2.5, 3.0], index=1)
+    st.caption("Target: Opposite CRT liquidity (not fixed R).")
     holding = st.slider("Maximum holding days", 1, 60, 20)
     costs_bps = st.number_input("Round-trip charges + slippage (basis points)", min_value=0.0, max_value=100.0, value=10.0, step=1.0)
 
@@ -42,7 +42,7 @@ if st.button("▶ Run historical backtest", type="primary"):
             company_name = scan_names.get(symbol, symbol)
         else:
             with st.spinner(f"Downloading daily candles for {symbol}..."):
-                price_result, errors = download_market_data([symbol], period="5y", batch_size=1)
+                price_result, errors = download_market_data([symbol], period="3y", batch_size=1)
             prices = price_result.get(symbol, pd.DataFrame())
             company_name = symbol
             if prices.empty:
@@ -58,7 +58,7 @@ if st.button("▶ Run historical backtest", type="primary"):
                 lookback_bars=int(period_bars),
                 initial_capital=float(capital),
                 risk_per_trade_pct=float(risk_pct),
-                target_r=float(target_r),
+                target_r=None,
                 max_holding_bars=int(holding),
                 round_trip_cost_bps=float(costs_bps),
             )
@@ -66,7 +66,7 @@ if st.button("▶ Run historical backtest", type="primary"):
         st.session_state["backtest_symbol"] = symbol
         st.session_state["backtest_settings"] = {
             "Initial Capital": capital, "Risk / trade %": risk_pct,
-            "Target R": target_r, "Max holding days": holding,
+            "Target": "Opposite CRT liquidity", "Max holding days": holding,
             "Round-trip cost bps": costs_bps, "Backtest bars": period_bars,
         }
     except Exception as exc:
@@ -111,11 +111,13 @@ if result:
     with st.expander("Backtest assumptions — read before interpreting results"):
         st.markdown(
             "- Signal केवल उस daily candle के close होने पर माना जाता है जिस दिन scanner BUY/SELL देता है.\n"
-            "- Entry अगले trading session के Open पर simulate होती है; same candle close पर fill नहीं मानते.\n"
+            "- CHoCH के बाद FVG retest-confirmation signal के अगले trading session के Open पर entry simulate होती है; उसी candle close पर fill नहीं मानते.\n"
             "- Daily candle में SL और Target दोनों touch हों, तो conservative रूप से SL पहले माना जाता है.\n"
             "- Position size risk-per-trade और available cash से निकाली जाती है; leverage नहीं माना गया.\n"
+            "- Target opposite CRT liquidity (M1 range का opposite extreme) है; fixed R target नहीं.\n"
+            "- SL sweep/reclaim करने वाली actual daily sweep candle के High/Low पर रखा जाता है.\n"
             "- Brokerage, taxes, spread और slippage को एक अनुमानित round-trip basis-point cost से दर्शाया गया है; वास्तविक charges अलग हो सकते हैं.\n"
             "- Backtest एक symbol पर एक समय में एक position रखता है. यह simulation है, future performance की guarantee नहीं."
         )
 else:
-    st.info("ऊपर symbol चुनें और **Run historical backtest** दबाएँ।")
+    st.info("Symbol चुनें और **Run historical backtest** दबाएँ। Backtest पिछले 3 वर्षों के daily candles पर चलेगा।")
