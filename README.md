@@ -11,7 +11,8 @@ A Streamlit dashboard that ports the supplied Pine Script CRT workflow into Pyth
 
 The default selection is **All NSE + BSE stocks + all indices**.
 
-- **NSE stocks:** active securities in the official NSE cash-market `EQ` series, refreshed from NSE's `EQUITY_L.csv` and cached locally for up to 24 hours.
+- **NSE mainboard stocks:** active securities in the official NSE cash-market `EQ` series, refreshed from NSE's `EQUITY_L.csv` and cached locally for up to 24 hours.
+- **NSE SME stocks:** loaded separately from the official NSE `SME_EQUITY_L.csv` list and cached locally for up to 24 hours.
 - **BSE stocks:** the app attempts to load BSE's official `SCRIP.ZIP` equity master. If that cannot be accessed, it falls back to symbols found in a recent BSE daily equity bhavcopy. That fallback only represents securities appearing in the downloaded bhavcopy; it is not a guarantee of every BSE-listed scrip.
 - **Nifty equity indices:** the catalogue includes broad-market, sectoral, thematic and strategy/factor indices published in the Nifty equity factsheet, plus selected BSE benchmark-index names.
 - **Data-provider mapping:** official index names are not always Yahoo Finance ticker symbols. Only index tickers explicitly mapped in `YAHOO_INDEX_SYMBOLS` are downloaded. Other official index catalogue entries remain visible in the unavailable list with the reason "no verified Yahoo Finance ticker mapping"; the app never invents ticker strings.
