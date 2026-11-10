@@ -187,7 +187,13 @@ if "scan_results" in st.session_state:
                 tv_symbol = "BSE:" + raw_symbol[:-3]
             else:
                 tv_symbol = ("BSE:" if "BSE" in exchange else "NSE:") + raw_symbol
-            return "https://www.tradingview.com/chart/?symbol=" + tv_symbol.replace(" ", "%20")
+            display_name = str(row.get("Name", raw_symbol)).strip().replace(" ", "%20")
+            return (
+                "https://www.tradingview.com/chart/?symbol="
+                + tv_symbol.replace(" ", "%20")
+                + "&display="
+                + display_name
+            )
 
         view["Name"] = [
             _tv_url_for_row(row)
@@ -202,7 +208,7 @@ if "scan_results" in st.session_state:
             selection_mode="single-row",
             key="setup_results_table",
             column_config={
-                "Name": st.column_config.LinkColumn("Name", display_text="Open chart ↗"),
+                "Name": st.column_config.LinkColumn("Name", display_text=r".*[&?]display=([^&]+).*"),
                 "LTP": st.column_config.NumberColumn(format="₹%.2f"),
                 "Entry": st.column_config.NumberColumn(format="₹%.2f"),
                 "SL": st.column_config.NumberColumn(format="₹%.2f"),
