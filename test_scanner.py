@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr, scan_symbol
+from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr, _zones, scan_symbol
 from data_fetch import _extract_one
 import universe
 
@@ -109,9 +109,11 @@ def test_official_nifty_equity_index_catalog_is_comprehensive():
     assert len(names) == len(set(name.upper() for name in names))
     all_indices = universe._index_rows()
     all_names = [row["Name"].upper() for row in all_indices]
-    assert len(all_indices) >= 200
+    assert len(all_indices) >= 10
     assert len(all_names) == len(set(all_names))
-    assert any(row["Name"] == "S&P BSE 500" for row in all_indices)
+    assert all(row["DataAvailable"] for row in all_indices)
+    assert any(row["Name"] == "S&P BSE SENSEX" for row in all_indices)
+    assert not any(row["Name"] == "S&P BSE 500" for row in all_indices)
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY 200"] == "^CNX200"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY MNC"] == "^CNXMNC"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY PSE"] == "^CNXPSE"
@@ -123,7 +125,7 @@ def test_official_nifty_equity_index_catalog_is_comprehensive():
     assert "NIFTY MIDCAP 100" not in universe.YAHOO_INDEX_SYMBOLS
 
 
-def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
+def test_legacy_all_india_universe_keeps_stocks_but_only_mapped_indices(monkeypatch):
     nse = pd.DataFrame([{"SYMBOL": "RELIANCE", "NAME": "Reliance Industries", "SERIES": "EQ"}])
     bse = pd.DataFrame([{"SYMBOL": "TCS", "NAME": "Tata Consultancy Services"}])
     sme = pd.DataFrame([{"SYMBOL": "ABC", "NAME": "ABC SME Ltd"}])
@@ -135,10 +137,10 @@ def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
     assert "ABC.NS" in frame["Symbol"].tolist()
     assert "TCS.BO" in frame["Symbol"].tolist()
     assert (frame["Exchange"] == "NSE-SME").sum() == 1
-    assert (frame["Type"] == "Index").sum() >= 140
-    unmapped = frame[(frame["Type"] == "Index") & (~frame["DataAvailable"])]
-    assert len(unmapped) > 50
-    assert (unmapped["Symbol"] == "").all()
+    index_rows = frame[frame["Type"] == "Index"]
+    assert len(index_rows) >= 10
+    assert index_rows["DataAvailable"].all()
+    assert index_rows["Symbol"].fillna("").astype(str).str.strip().ne("").all()
 
     stock_only = universe.make_universe("All NSE + BSE stocks + SME")
     assert "RELIANCE.NS" in stock_only["Symbol"].tolist()
@@ -156,3 +158,29 @@ def test_nse_sme_csv_parser():
     )
     frame = universe._read_nse_sme_csv(raw)
     assert frame["SYMBOL"].tolist() == ["SMEONE", "SMETWO"]
+
+
+def test_zone_orderblock_uses_configured_atr_displacement():
+    dates = pd.bdate_range("2026-01-01", periods=30)
+    frame = pd.DataFrame({
+        "Open": [100.0] * 30,
+        "High": [101.0] * 30,
+        "Low": [99.0] * 30,
+        "Close": [100.0] * 30,
+    }, index=dates)
+    frame.iloc[28, frame.columns.get_loc("Open")] = 101.0
+    frame.iloc[28, frame.columns.get_loc("High")] = 102.0
+    frame.iloc[28, frame.columns.get_loc("Low")] = 99.0
+    frame.iloc[28, frame.columns.get_loc("Close")] = 99.0
+    frame.iloc[29, frame.columns.get_loc("Open")] = 99.0
+    frame.iloc[29, frame.columns.get_loc("High")] = 104.0
+    frame.iloc[29, frame.columns.get_loc("Low")] = 98.0
+    frame.iloc[29, frame.columns.get_loc("Close")] = 103.0
+
+    permissive = ScanConfig(atr_length=2, displacement_atr=0.5)
+    strict = ScanConfig(atr_length=2, displacement_atr=1.0)
+    permissive_ob = _zones(frame, 0, 29, 1, permissive)[2]
+    strict_ob = _zones(frame, 0, 29, 1, strict)[2]
+
+    assert permissive_ob
+    assert not strict_ob
