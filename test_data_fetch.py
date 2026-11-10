@@ -32,7 +32,7 @@ def test_download_market_data_returns_requested_key_for_bare_symbol(monkeypatch)
     assert "RELIANCE" in prices
     assert prices["RELIANCE"].shape[0] == 3
     assert errors == {}
-    assert calls == ["RELIANCE.NS"]
+    assert calls == [["RELIANCE.NS"]]
 
 
 def test_missing_batch_symbol_retries_individually(monkeypatch):
@@ -42,9 +42,9 @@ def test_missing_batch_symbol_retries_individually(monkeypatch):
         return pd.DataFrame([[10, 12, 9, 11], [11, 13, 10, 12]], index=index, columns=cols)
 
     def fake_download(tickers, period):
-        if isinstance(tickers, list):
+        if len(tickers) > 1:
             return make("GOOD.NS")
-        return make(tickers)
+        return make(tickers[0])
 
     monkeypatch.setattr(data_fetch, "_download", fake_download)
     prices, errors = data_fetch.download_market_data(["GOOD", "OMITTED"], batch_size=2)
