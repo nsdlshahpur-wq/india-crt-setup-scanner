@@ -40,7 +40,7 @@ def test_nse_universe_filters_eq_series_only():
         b"BBB,BE,Beta Ltd\n"
         b"CCC,EQ,Gamma Ltd\n"
     )
-    frame = _read_nse_equity_csv(raw)
+    frame = universe._read_nse_equity_csv(raw)
     assert frame["SYMBOL"].tolist() == ["AAA", "CCC"]
     assert set(frame["SERIES"].tolist()) == {"EQ"}
 
