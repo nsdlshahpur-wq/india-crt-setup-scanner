@@ -43,7 +43,7 @@ if not watch.empty:
     st.divider()
     st.subheader("Scan and create alerts")
     st.caption("Checks all five CRT → Entry timeframe pairs. To control provider requests, one scan is limited to 20 symbols.")
-    if st.button("🔎 Scan Watchlist", type="primary):
+    if st.button("🔎 Scan Watchlist", type="primary"):
         symbols = watch["Symbol"].astype(str).tolist()[:20]
         if len(watch) > 20:
             st.warning("पहले 20 symbols scan किए गए हैं। बाकी symbols अगले scan में जाँचें।")
