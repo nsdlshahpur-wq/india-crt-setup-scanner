@@ -158,6 +158,7 @@ if "scan_results" in st.session_state:
     sweep_count = int((results["Stage"] == 2).sum()) if not results.empty else 0
     wait_sweep_count = int((results["Stage"] == 1).sum()) if not results.empty else 0
 
+    st.header("📊 Dashboard")
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Universe entries", f"{total_universe:,}")
     m2.metric("Data received", f"{data_count:,}")
@@ -220,6 +221,9 @@ if "scan_results" in st.session_state:
             required_chart_cols = ["Open", "High", "Low", "Close"]
             if all(col in chart_data.columns for col in required_chart_cols):
                 chart_data = chart_data.dropna(subset=required_chart_cols).tail(250)
+                # Indicator overlays for the price chart
+                chart_data["EMA 20"] = chart_data["Close"].ewm(span=20, adjust=False).mean()
+                chart_data["EMA 50"] = chart_data["Close"].ewm(span=50, adjust=False).mean()
                 fig = go.Figure(
                     data=[
                         go.Candlestick(
@@ -229,7 +233,9 @@ if "scan_results" in st.session_state:
                             low=chart_data["Low"],
                             close=chart_data["Close"],
                             name=chart_symbol,
-                        )
+                        ),
+                        go.Scatter(x=chart_data.index, y=chart_data["EMA 20"], name="EMA 20", line=dict(width=1.5)),
+                        go.Scatter(x=chart_data.index, y=chart_data["EMA 50"], name="EMA 50", line=dict(width=1.5)),
                     ]
                 )
                 match = results[results["Symbol"] == chart_symbol] if not results.empty else pd.DataFrame()
@@ -269,6 +275,55 @@ if "scan_results" in st.session_state:
                     legend=dict(orientation="h"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+                # Dedicated technical-indicator section, based on selected symbol's daily candles
+                st.divider()
+                st.header("📈 Indicator Section")
+                close = chart_data["Close"].astype(float)
+                delta = close.diff()
+                gain = delta.clip(lower=0).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                rs = gain / loss.replace(0, float("nan"))
+                chart_data["RSI 14"] = 100 - (100 / (1 + rs))
+                prev_close = close.shift(1)
+                true_range = pd.concat(
+                    [chart_data["High"] - chart_data["Low"],
+                     (chart_data["High"] - prev_close).abs(),
+                     (chart_data["Low"] - prev_close).abs()], axis=1
+                ).max(axis=1)
+                chart_data["ATR 14"] = true_range.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                ema12 = close.ewm(span=12, adjust=False).mean()
+                ema26 = close.ewm(span=26, adjust=False).mean()
+                chart_data["MACD"] = ema12 - ema26
+                chart_data["MACD Signal"] = chart_data["MACD"].ewm(span=9, adjust=False).mean()
+                chart_data["MACD Histogram"] = chart_data["MACD"] - chart_data["MACD Signal"]
+
+                last = chart_data.iloc[-1]
+                ind1, ind2, ind3, ind4 = st.columns(4)
+                ind1.metric("RSI (14)", f"{last['RSI 14']:.2f}" if pd.notna(last["RSI 14"]) else "N/A")
+                ind2.metric("ATR (14)", f"₹{last['ATR 14']:.2f}" if pd.notna(last["ATR 14"]) else "N/A")
+                ind3.metric("EMA 20", f"₹{last['EMA 20']:.2f}")
+                ind4.metric("EMA 50", f"₹{last['EMA 50']:.2f}")
+
+                indicator_fig = go.Figure()
+                indicator_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["RSI 14"], name="RSI 14"))
+                indicator_fig.add_hline(y=70, line_dash="dash", annotation_text="Overbought 70")
+                indicator_fig.add_hline(y=30, line_dash="dash", annotation_text="Oversold 30")
+                indicator_fig.update_layout(
+                    title=f"{chart_symbol} — RSI (14)", yaxis_title="RSI", yaxis_range=[0, 100],
+                    height=300, template="plotly_white", xaxis_rangeslider_visible=False,
+                )
+                st.plotly_chart(indicator_fig, use_container_width=True)
+
+                macd_fig = go.Figure()
+                macd_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["MACD"], name="MACD"))
+                macd_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["MACD Signal"], name="Signal"))
+                macd_fig.add_trace(go.Bar(x=chart_data.index, y=chart_data["MACD Histogram"], name="Histogram"))
+                macd_fig.update_layout(
+                    title=f"{chart_symbol} — MACD (12, 26, 9)", height=320,
+                    template="plotly_white", xaxis_rangeslider_visible=False,
+                )
+                st.plotly_chart(macd_fig, use_container_width=True)
             else:
                 st.warning("इस symbol के लिए OHLC chart columns उपलब्ध नहीं हैं।")
 
