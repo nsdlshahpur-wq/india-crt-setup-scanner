@@ -140,7 +140,7 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
     setup="BUY" if stage==3 and direction==1 else ("SELL" if stage==3 and direction==-1 else ("Wait CHoCH" if stage==1 else ("Wait Retest" if stage==2 else "-")))
     return {"Symbol":symbol,"Name":name,"Bias":bias_name,"Stage":stage,"Setup":setup,"LTP":ltp,"Entry":entry,"SL":sl,
         "T1 (2R)":(entry+2*(entry-sl) if direction==1 and pd.notna(entry) and pd.notna(sl) else (entry-2*(sl-entry) if direction==-1 and pd.notna(entry) and pd.notna(sl) else np.nan)),
-        "T2 (M1 H/L)":target,"Invalidation":ctx["m1_low"] if direction==1 else (ctx["m1_high"] if direction==-1 else np.nan),
+        "Target (M1 Monthly H/L)":target,"Invalidation":ctx["m1_low"] if direction==1 else (ctx["m1_high"] if direction==-1 else np.nan),
         "M1 High":ctx["m1_high"],"M1 Low":ctx["m1_low"],"M2 High":ctx["m2_high"],"M2 Low":ctx["m2_low"],
         "M2 Close":ctx["m2_close"],"M1 Month":ctx["m1_period"],"M2 Month":ctx["m2_period"],"M3 Month":ctx["m3_period"],
         "Sweep Date":sweep_date,"CHoCH Date":choch_date,"Entry Date":entry_date,"Zone Low":zone_low,"Zone High":zone_high,
