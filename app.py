@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
+from mtf_scanner import analyze_multi_timeframe
 from universe import make_universe
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
@@ -282,6 +283,60 @@ if "scan_results" in st.session_state:
             format_func=lambda symbol: f"{symbol} — {symbol_names.get(symbol, '')}",
             key="crt_chart_symbol",
         )
+
+        # Multi-timeframe CRT analysis runs only for the selected symbol because
+        # intraday history is rate-limited and not available for every Indian ticker.
+        st.divider()
+        st.subheader("🧭 Multi-Timeframe CRT Matrix")
+        st.caption("एक selected शेयर / index पर पाँचों CRT → Entry timeframe pairs का अलग-अलग analysis करें.")
+        if st.button("🔎 Analyze all 5 timeframe pairs", type="primary", key="run_mtf_analysis"):
+            try:
+                with st.spinner(f"{chart_symbol}: Monthly, Weekly, Daily, 4H और 1H CRT data जाँचा जा रहा है..."):
+                    mtf_rows, mtf_errors = analyze_multi_timeframe(chart_symbol)
+                st.session_state["mtf_rows"] = mtf_rows
+                st.session_state["mtf_errors"] = mtf_errors
+                st.session_state["mtf_symbol"] = chart_symbol
+            except Exception as exc:
+                st.error(f"Multi-timeframe analysis failed: {exc}")
+
+        if st.session_state.get("mtf_symbol") == chart_symbol and st.session_state.get("mtf_rows"):
+            mtf_df = pd.DataFrame(st.session_state["mtf_rows"])
+            st.dataframe(
+                mtf_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Retest Price": st.column_config.NumberColumn(format="₹%.2f"),
+                    "CRT Range High": st.column_config.NumberColumn(format="₹%.2f"),
+                    "CRT Range Low": st.column_config.NumberColumn(format="₹%.2f"),
+                    "Zone Low": st.column_config.NumberColumn(format="₹%.2f"),
+                    "Zone High": st.column_config.NumberColumn(format="₹%.2f"),
+                    "Entry": st.column_config.NumberColumn(format="₹%.2f"),
+                    "SL": st.column_config.NumberColumn(format="₹%.2f"),
+                    "Target": st.column_config.NumberColumn(format="₹%.2f"),
+                },
+            )
+            with st.expander("ℹ️ CRT signal rules and data limitations"):
+                st.markdown(
+                    "- **CRT sweep:** पिछले CRT candle के High/Low के बाहर wick और उसी boundary के अंदर close.\n"
+                    "- **Entry confirmation:** Entry timeframe पर 6-candle structure break और उसी दिशा का 3-candle FVG.\n"
+                    "- **VALID:** CRT sweep/reclaim मिला, लेकिन entry confirmation अभी नहीं मिली.\n"
+                    "- **ENTRY READY:** CRT valid है और structure break + FVG दोनों मिले.\n"
+                    "- **INVALID:** Sweep candle के बाद CRT close ने swept extreme तोड़ दिया.\n"
+                    "- **HCS:** अभी अलग HCS rule उपलब्ध नहीं है; इसलिए table में Structure / CHoCH दिखाया गया है.\n"
+                    "- Yahoo Finance की intraday history सीमित है: 1m लगभग 7 दिन, 5m/30m लगभग 60 दिन और 1H लगभग 730 दिन तक मिल सकती है. अनुपलब्ध data को signal नहीं माना जाएगा."
+                )
+            mtf_errors = st.session_state.get("mtf_errors", {})
+            if mtf_errors:
+                with st.expander(f"Unavailable timeframe data ({len(mtf_errors)})"):
+                    st.dataframe(
+                        pd.DataFrame([{"Timeframe": k, "Reason": v} for k, v in mtf_errors.items()]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        else:
+            st.info("पहले ऊपर का **Analyze all 5 timeframe pairs** बटन दबाएँ। Intraday analysis केवल चुने हुए symbol पर चलेगा।")
+
         # TradingView live chart embedded directly in the scanner.
         tv_index_map = {"^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY", "^BSESN": "BSE:SENSEX"}
         if chart_symbol.startswith("^"):
@@ -292,9 +347,25 @@ if "scan_results" in st.session_state:
             tv_chart_symbol = "BSE:" + chart_symbol[:-3]
         else:
             tv_chart_symbol = "NSE:" + chart_symbol
+        tv_interval_label = st.selectbox(
+            "TradingView Chart Timeframe",
+            ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"],
+            index=2,
+            key="tv_chart_interval",
+        )
+        tv_interval_code = {
+            "Monthly": "M",
+            "Weekly": "W",
+            "Daily": "D",
+            "4H": "240",
+            "1H": "60",
+            "30m": "30",
+            "5m": "5",
+            "1m": "1",
+        }[tv_interval_label]
         tv_embed_url = (
             "https://www.tradingview.com/widgetembed/?"
-            f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval=D"
+            f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval={tv_interval_code}"
             "&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6"
             "&studies=EMA%4020%2CEMA%4050&theme=light&style=1&timezone=Asia%2FKolkata"
             "&withdateranges=1&showpopupbutton=1&locale=en"
