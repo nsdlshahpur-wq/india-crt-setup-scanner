@@ -21,7 +21,7 @@ with st.sidebar:
         ["All Stocks", "All Index"],
         index=0,
         key="mtf_universe",
-        help="All Stocks: NSE + BSE equity shares including SME. All Index: available Indian indices.",
+        help="All Stocks: NSE main-board EQ shares. BSE duplicate listings and SME scrips are excluded for faster scans. All Index: only indices with a Yahoo Finance ticker mapping.",
     )
     crt_timeframe = st.selectbox(
         "CRT context timeframe",
@@ -47,7 +47,7 @@ if st.button("🔎 Scan Multi-Timeframe CRT", type="primary"):
     try:
         with st.spinner("Preparing symbols..."):
             source_mode = {
-                "All Stocks": "All NSE + BSE stocks + SME",
+                "All Stocks": "All NSE EQ stocks",
                 "All Index": "All Indian indices",
             }[universe_mode]
             universe = make_universe(source_mode)
