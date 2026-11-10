@@ -172,7 +172,7 @@ if "scan_results" in st.session_state:
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
-            "Symbol", "Name", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
+            "Symbol", "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
             "T2 (M2 H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
             "M2 Close", "Sweep Date", "Entry Date", "Last Candle",
         ]
