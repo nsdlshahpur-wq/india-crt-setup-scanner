@@ -17,8 +17,26 @@ with st.sidebar:
     universe_mode = st.selectbox("Market universe", ["Custom symbols", "All NSE EQ stocks", "All Indian indices"], key="mtf_universe")
     symbols_text = st.text_area("Symbols (comma separated)", "RELIANCE, HDFCBANK, INFY, TCS, NIFTY 50", key="mtf_symbols")
     history_period = st.selectbox("History", ["1y", "2y", "3y", "5y"], index=2, key="mtf_history")
-    crt_timeframe = st.selectbox("CRT context timeframe", ["Monthly", "Weekly", "Daily"], index=0)
-    execution_timeframe = st.selectbox("Entry timeframe", ["Daily"], index=0, help="Only Daily entry analysis is currently implemented in the supplied strategy.")
+    crt_timeframe = st.selectbox(
+        "CRT context timeframe",
+        ["Monthly", "Weekly", "Daily", "4H", "1H"],
+        index=0,
+        key="mtf_crt_context_tf",
+    )
+    entry_by_crt = {
+        "Monthly": "Daily",
+        "Weekly": "4H",
+        "Daily": "30m",
+        "4H": "5m",
+        "1H": "1m",
+    }
+    execution_timeframe = st.selectbox(
+        "Entry timeframe",
+        ["Daily", "4H", "30m", "5m", "1m"],
+        index=["Daily", "4H", "30m", "5m", "1m"].index(entry_by_crt[crt_timeframe]),
+        key="mtf_entry_tf",
+        help="Entry timeframe is preselected according to the requested CRT mapping; the standalone legacy scan still uses Daily candles for execution.",
+    )
     batch_size = st.slider("Batch size", 10, 80, 30, 10, key="mtf_batch")
     st.caption("Yahoo Finance data can be delayed, incomplete, rate-limited, or unavailable for some tickers.")
 
