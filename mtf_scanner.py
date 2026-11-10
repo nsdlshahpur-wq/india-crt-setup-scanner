@@ -274,6 +274,7 @@ def analyze_multi_timeframe(ticker: str) -> tuple[list[dict[str, Any]], dict[str
             "CRT TF": crt_tf,
             "Entry TF": entry_tf,
             "CRT Status": "NO DATA" if crt.empty else "NO SWEEP",
+            "CRT Mark": "",
             "HTF Bias": "Neutral",
             "Liquidity Sweep": "Not found",
             "Structure / CHoCH": "Pending",
@@ -310,14 +311,16 @@ def analyze_multi_timeframe(ticker: str) -> tuple[list[dict[str, Any]], dict[str
         base.update(
             {
                 "CRT Status": "INVALID" if sweep["invalidated"] else "VALID - WAIT ENTRY",
+                # Only a confirmed, non-invalidated CRT receives the visible marker.
+                "CRT Mark": "" if sweep["invalidated"] else "✓ VALID CRT",
                 "HTF Bias": "Bullish" if bullish else "Bearish",
                 "Liquidity Sweep": "Sell-side swept" if bullish else "Buy-side swept",
-                "Retest Price": float(ref["Low"] if bullish else ref["High"]),
-                "CRT Range High": float(ref["High"]),
-                "CRT Range Low": float(ref["Low"]),
-                "SL": float(bar["Low"] if bullish else bar["High"]),
-                "Target": float(ref["High"] if bullish else ref["Low"]),
-                "CRT Candle": sweep["sweep_time"].strftime("%Y-%m-%d %H:%M"),
+                "Retest Price": None if sweep["invalidated"] else float(ref["Low"] if bullish else ref["High"]),
+                "CRT Range High": None if sweep["invalidated"] else float(ref["High"]),
+                "CRT Range Low": None if sweep["invalidated"] else float(ref["Low"]),
+                "SL": None if sweep["invalidated"] else float(bar["Low"] if bullish else bar["High"]),
+                "Target": None if sweep["invalidated"] else float(ref["High"] if bullish else ref["Low"]),
+                "CRT Candle": sweep["sweep_time"].strftime("%Y-%m-%d %H:%M") if not sweep["invalidated"] else None,
             }
         )
         if sweep["invalidated"]:
@@ -332,6 +335,7 @@ def analyze_multi_timeframe(ticker: str) -> tuple[list[dict[str, Any]], dict[str
             base["Zone Low"], base["Zone High"] = confirm["fvg"]
         if confirm.get("confirmed"):
             base["CRT Status"] = "ENTRY READY"
+            base["CRT Mark"] = "✓ VALID CRT"
             base["Entry"] = confirm["last_close"]
         elif confirm.get("reason"):
             base["Data Note"] = confirm["reason"]
