@@ -14,11 +14,11 @@ The default selection is **All NSE + BSE stocks + all indices**.
 - **NSE mainboard stocks:** active securities in the official NSE cash-market `EQ` series, refreshed from NSE's `EQUITY_L.csv` and cached locally for up to 24 hours.
 - **NSE SME stocks:** loaded separately from the official NSE `SME_EQUITY_L.csv` list and cached locally for up to 24 hours.
 - **BSE stocks:** the app attempts to load BSE's official `SCRIP.ZIP` equity master. If that cannot be accessed, it falls back to symbols found in a recent BSE daily equity bhavcopy. That fallback only represents securities appearing in the downloaded bhavcopy; it is not a guarantee of every BSE-listed scrip.
-- **Nifty equity indices:** the catalogue includes broad-market, sectoral, thematic and strategy/factor indices published in the Nifty equity factsheet, plus selected BSE benchmark-index names.
+- **Indian equity indices:** the catalogue includes Nifty broad-market, sectoral, thematic and strategy/factor equity indices, plus BSE broad/market-cap, sectoral, thematic and strategy index families. Official index names are retained even when this data vendor has no symbol mapping.
 - **Data-provider mapping:** official index names are not always Yahoo Finance ticker symbols. Only index tickers explicitly mapped in `YAHOO_INDEX_SYMBOLS` are downloaded. Other official index catalogue entries remain visible in the unavailable list with the reason "no verified Yahoo Finance ticker mapping"; the app never invents ticker strings.
 - **Custom symbols:** accepts NSE tickers such as `RELIANCE`, `HDFCBANK`, `INFY`, BSE-prefixed tickers such as `BSE:500325` only when the Yahoo data provider recognises the resulting ticker, and supported index aliases such as `NIFTY 50` and `NIFTY BANK`.
 
-The Nifty brand portfolio contains many other index families, including fixed-income, bond, hybrid and multi-asset indices. This CRT scanner catalogue is focused on equity/market indices; it is not a catalogue of every fixed-income or hybrid index in the Nifty portfolio. The official Nifty index factsheet is the reference list.
+The Nifty and BSE index providers also publish fixed-income, bond, hybrid, multi-asset, custom and licensed indices. This CRT scanner catalogue is focused on publicly documented equity/market-index families for stock-market scanning; it is not a promise to include every custom, fixed-income or multi-asset index. The full index portfolios are larger than the equity scanner universe.
 
 ## Data source and limitations
 
