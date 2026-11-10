@@ -37,7 +37,7 @@ def test_selected_4h_crt_uses_hourly_source_and_5m_entry(monkeypatch):
 
     def fake_download_source(ticker, interval, period):
         calls.append((ticker, interval, period))
-        if interval == "1h":
+        if interval == "60m":
             return _flat_ohlc(hourly_index)
         if interval == "5m":
             return _flat_ohlc(five_min_index)
