@@ -14,6 +14,8 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+from data_fetch import yahoo_ticker
+
 
 TIMEFRAME_PAIRS: dict[str, str] = {
     "Monthly": "Daily",
@@ -255,90 +257,128 @@ def _entry_confirmation(entry: pd.DataFrame, sweep_end: pd.Timestamp, direction:
     }
 
 
+def _build_pair_result(
+    ticker: str,
+    crt_tf: str,
+    entry_tf: str,
+    crt: pd.DataFrame,
+    entry: pd.DataFrame,
+    errors: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build one CRT/entry pair result from its own timeframe candle sets."""
+    errors = errors or {}
+    base: dict[str, Any] = {
+        "Symbol": ticker,
+        "CRT TF": crt_tf,
+        "Entry TF": entry_tf,
+        "CRT Status": "NO DATA" if crt.empty or entry.empty else "NO SWEEP",
+        "CRT Mark": "",
+        "HTF Bias": "Neutral",
+        "Liquidity Sweep": "Not found",
+        "Structure / CHoCH": "Pending",
+        "Retest Price": None,
+        "CRT Range High": None,
+        "CRT Range Low": None,
+        "Zone Low": None,
+        "Zone High": None,
+        "Entry": None,
+        "SL": None,
+        "Target": None,
+        "CRT Candle": None,
+        "Entry Candle": None,
+        "Data Note": errors.get(crt_tf, errors.get(entry_tf, "")),
+    }
+    if crt.empty or entry.empty:
+        return base
+
+    sweep = _find_sweep(crt, crt_tf)
+    if sweep is None:
+        return base
+    if sweep.get("ambiguous"):
+        base["CRT Status"] = "AMBIGUOUS"
+        base["Liquidity Sweep"] = "Both sides swept"
+        return base
+
+    direction = int(sweep["direction"])
+    reference = sweep["reference"]
+    sweep_bar = sweep["sweep"]
+    bullish = direction == 1
+    base.update({
+        "CRT Status": "INVALID" if sweep["invalidated"] else "VALID - WAIT ENTRY",
+        "CRT Mark": "" if sweep["invalidated"] else "✓ VALID CRT",
+        "HTF Bias": "Bullish" if bullish else "Bearish",
+        "Liquidity Sweep": "Sell-side swept" if bullish else "Buy-side swept",
+        "Retest Price": None if sweep["invalidated"] else float(reference["Low"] if bullish else reference["High"]),
+        "CRT Range High": None if sweep["invalidated"] else float(reference["High"]),
+        "CRT Range Low": None if sweep["invalidated"] else float(reference["Low"]),
+        "SL": None if sweep["invalidated"] else float(sweep_bar["Low"] if bullish else sweep_bar["High"]),
+        "Target": None if sweep["invalidated"] else float(reference["High"] if bullish else reference["Low"]),
+        "CRT Candle": sweep["sweep_time"].strftime("%Y-%m-%d %H:%M") if not sweep["invalidated"] else None,
+    })
+    if sweep["invalidated"]:
+        return base
+
+    confirm = _entry_confirmation(entry, sweep["sweep_end"], direction)
+    if confirm.get("last_time") is not None:
+        base["Entry Candle"] = confirm["last_time"].strftime("%Y-%m-%d %H:%M")
+    base["Structure / CHoCH"] = "Confirmed" if confirm.get("structure") else "Pending"
+    if confirm.get("fvg") is not None:
+        base["Zone Low"], base["Zone High"] = confirm["fvg"]
+    if confirm.get("confirmed"):
+        base["CRT Status"] = "ENTRY READY"
+        base["CRT Mark"] = "✓ VALID CRT"
+        base["Entry"] = confirm["last_close"]
+    elif confirm.get("reason"):
+        base["Data Note"] = confirm["reason"]
+    return base
+
+
+def analyze_timeframe_pair(
+    ticker: str,
+    crt_timeframe: str,
+    entry_timeframe: str | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Analyze one selectable CRT/entry pair using the correct Yahoo intervals."""
+    if crt_timeframe not in TIMEFRAME_PAIRS:
+        raise ValueError(f"Unsupported CRT timeframe: {crt_timeframe}")
+    entry_tf = entry_timeframe or TIMEFRAME_PAIRS[crt_timeframe]
+    supported_entry = set(DURATIONS) - {"Monthly", "Weekly"}
+    if entry_tf not in supported_entry:
+        raise ValueError(f"Unsupported entry timeframe: {entry_tf}")
+
+    yahoo_symbol = yahoo_ticker(ticker)
+    source_cache: dict[str, pd.DataFrame] = {}
+    crt = _timeframe_data(crt_timeframe, yahoo_symbol, source_cache)
+    entry = _timeframe_data(entry_tf, yahoo_symbol, source_cache)
+    errors: dict[str, str] = {}
+    if crt.empty:
+        errors[crt_timeframe] = f"No completed {crt_timeframe} candles returned for Yahoo ticker {yahoo_symbol}"
+    if entry.empty:
+        errors[entry_tf] = f"No completed {entry_tf} candles returned for Yahoo ticker {yahoo_symbol}"
+    result = _build_pair_result(ticker, crt_timeframe, entry_tf, crt, entry, errors)
+    return result, errors
+
+
 def analyze_multi_timeframe(ticker: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Analyze all five requested CRT/entry pairs for one selected ticker."""
+    yahoo_symbol = yahoo_ticker(ticker)
     source_cache: dict[str, pd.DataFrame] = {}
     frame_cache: dict[str, pd.DataFrame] = {}
     errors: dict[str, str] = {}
 
     for timeframe in ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"]:
-        frame_cache[timeframe] = _timeframe_data(timeframe, ticker, source_cache)
+        frame_cache[timeframe] = _timeframe_data(timeframe, yahoo_symbol, source_cache)
         if frame_cache[timeframe].empty:
-            errors[timeframe] = "Yahoo Finance data unavailable or outside its intraday history limit"
+            errors[timeframe] = f"No completed {timeframe} candles returned for Yahoo ticker {yahoo_symbol}"
 
     rows: list[dict[str, Any]] = []
     for crt_tf, entry_tf in TIMEFRAME_PAIRS.items():
-        crt = frame_cache[crt_tf]
-        entry = frame_cache[entry_tf]
-        base: dict[str, Any] = {
-            "CRT TF": crt_tf,
-            "Entry TF": entry_tf,
-            "CRT Status": "NO DATA" if crt.empty else "NO SWEEP",
-            "CRT Mark": "",
-            "HTF Bias": "Neutral",
-            "Liquidity Sweep": "Not found",
-            "Structure / CHoCH": "Pending",
-            "Retest Price": None,
-            "CRT Range High": None,
-            "CRT Range Low": None,
-            "Zone Low": None,
-            "Zone High": None,
-            "Entry": None,
-            "SL": None,
-            "Target": None,
-            "CRT Candle": None,
-            "Entry Candle": None,
-            "Data Note": errors.get(crt_tf, errors.get(entry_tf, "")),
-        }
-        if crt.empty or entry.empty:
-            rows.append(base)
-            continue
-
-        sweep = _find_sweep(crt, crt_tf)
-        if sweep is None:
-            rows.append(base)
-            continue
-        if sweep.get("ambiguous"):
-            base["CRT Status"] = "AMBIGUOUS"
-            base["Liquidity Sweep"] = "Both sides swept"
-            rows.append(base)
-            continue
-
-        direction = int(sweep["direction"])
-        ref = sweep["reference"]
-        bar = sweep["sweep"]
-        bullish = direction == 1
-        base.update(
-            {
-                "CRT Status": "INVALID" if sweep["invalidated"] else "VALID - WAIT ENTRY",
-                # Only a confirmed, non-invalidated CRT receives the visible marker.
-                "CRT Mark": "" if sweep["invalidated"] else "✓ VALID CRT",
-                "HTF Bias": "Bullish" if bullish else "Bearish",
-                "Liquidity Sweep": "Sell-side swept" if bullish else "Buy-side swept",
-                "Retest Price": None if sweep["invalidated"] else float(ref["Low"] if bullish else ref["High"]),
-                "CRT Range High": None if sweep["invalidated"] else float(ref["High"]),
-                "CRT Range Low": None if sweep["invalidated"] else float(ref["Low"]),
-                "SL": None if sweep["invalidated"] else float(bar["Low"] if bullish else bar["High"]),
-                "Target": None if sweep["invalidated"] else float(ref["High"] if bullish else ref["Low"]),
-                "CRT Candle": sweep["sweep_time"].strftime("%Y-%m-%d %H:%M") if not sweep["invalidated"] else None,
-            }
-        )
-        if sweep["invalidated"]:
-            rows.append(base)
-            continue
-
-        confirm = _entry_confirmation(entry, sweep["sweep_end"], direction)
-        if confirm.get("last_time") is not None:
-            base["Entry Candle"] = confirm["last_time"].strftime("%Y-%m-%d %H:%M")
-        base["Structure / CHoCH"] = "Confirmed" if confirm.get("structure") else "Pending"
-        if confirm.get("fvg") is not None:
-            base["Zone Low"], base["Zone High"] = confirm["fvg"]
-        if confirm.get("confirmed"):
-            base["CRT Status"] = "ENTRY READY"
-            base["CRT Mark"] = "✓ VALID CRT"
-            base["Entry"] = confirm["last_close"]
-        elif confirm.get("reason"):
-            base["Data Note"] = confirm["reason"]
-        rows.append(base)
-
+        rows.append(_build_pair_result(
+            ticker,
+            crt_tf,
+            entry_tf,
+            frame_cache[crt_tf],
+            frame_cache[entry_tf],
+            errors,
+        ))
     return rows, errors
