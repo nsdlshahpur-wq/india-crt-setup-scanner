@@ -21,13 +21,15 @@ with st.sidebar:
             "All NSE + BSE stocks + all indices",
             "All India stocks + indices",
             "All NSE + BSE stocks",
+            "All NSE EQ + SME stocks",
+            "All NSE + BSE stocks + SME",
             "All NSE EQ stocks",
             "All BSE EQ stocks",
             "All Indian indices",
             "Custom symbols",
         ],
         index=0,
-        help="Loads NSE EQ stocks, BSE equity scrips and the Nifty equity-index catalogue. Only verified Yahoo tickers can be downloaded; unmapped indices are listed separately.",
+        help="Loads NSE EQ and SME stocks, BSE equity scrips and the Nifty equity-index catalogue. Only verified Yahoo tickers can be downloaded; unmapped indices are listed separately.",
     )
     custom_symbols = ""
     if universe_mode == "Custom symbols":
@@ -67,7 +69,7 @@ def _load_universe(mode: str, custom: str) -> pd.DataFrame:
 
 if refresh:
     try:
-        with st.spinner("Loading the NSE symbol universe..."):
+        with st.spinner("Loading NSE, SME, BSE and index universes..."):
             universe = _load_universe(universe_mode, custom_symbols)
         if universe.empty:
             st.error("इस चयन के लिए कोई symbol नहीं मिला। NSE/BSE master या symbol spelling जाँचें।")
