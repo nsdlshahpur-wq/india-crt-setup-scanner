@@ -18,14 +18,10 @@ with st.sidebar:
     st.header("Multi-TF settings")
     universe_mode = st.selectbox(
         "Market universe",
-        ["Custom symbols", "All NSE EQ stocks", "All Indian indices"],
+        ["All Stocks", "All Index"],
+        index=0,
         key="mtf_universe",
-    )
-    symbols_text = st.text_area(
-        "Symbols (comma separated)",
-        "RELIANCE, HDFCBANK, INFY, TCS, NIFTY 50",
-        key="mtf_symbols",
-        help="Bare Indian equity symbols are automatically mapped to NSE Yahoo tickers (.NS).",
+        help="All Stocks: NSE + BSE equity shares including SME. All Index: available Indian indices.",
     )
     crt_timeframe = st.selectbox(
         "CRT context timeframe",
@@ -42,15 +38,6 @@ with st.sidebar:
         key="mtf_entry_tf",
         help="Default pair: Monthly→Daily, Weekly→4H, Daily→30m, 4H→5m, 1H→1m. You may select another supported entry timeframe.",
     )
-    batch_size = st.slider(
-        "Symbols per scan batch",
-        1,
-        20,
-        5,
-        1,
-        key="mtf_batch",
-        help="Small batches reduce the chance of Yahoo Finance rate limits.",
-    )
     st.caption(
         "Yahoo Finance history limits vary by interval: 1m is very short-term, "
         "5m/30m are limited, while Daily and higher timeframes offer longer history."
@@ -59,7 +46,11 @@ with st.sidebar:
 if st.button("🔎 Scan Multi-Timeframe CRT", type="primary"):
     try:
         with st.spinner("Preparing symbols..."):
-            universe = make_universe(universe_mode, custom_symbols=symbols_text)
+            source_mode = {
+                "All Stocks": "All NSE + BSE stocks + SME",
+                "All Index": "All Indian indices",
+            }[universe_mode]
+            universe = make_universe(source_mode)
             universe = universe[
                 universe["Symbol"].fillna("").astype(str).str.strip().ne("")
             ].drop_duplicates("Symbol")
@@ -74,29 +65,26 @@ if st.button("🔎 Scan Multi-Timeframe CRT", type="primary"):
         progress = st.progress(0.0, text="Downloading selected timeframe candles...")
         status = st.empty()
 
-        for batch_start in range(0, len(symbols), int(batch_size)):
-            batch = symbols[batch_start : batch_start + int(batch_size)]
-            for item in batch:
-                row, symbol_errors = analyze_timeframe_pair(
-                    str(item.Symbol),
-                    crt_timeframe,
-                    execution_timeframe,
-                )
-                row["Name"] = item.Name
-                row["Exchange"] = item.Exchange
-                row["CRT Context TF"] = crt_timeframe
-                row["Entry TF"] = execution_timeframe
-                rows.append(row)
+        for i, item in enumerate(symbols, start=1):
+            row, symbol_errors = analyze_timeframe_pair(
+                str(item.Symbol),
+                crt_timeframe,
+                execution_timeframe,
+            )
+            row["Name"] = item.Name
+            row["Exchange"] = item.Exchange
+            row["CRT Context TF"] = crt_timeframe
+            row["Entry TF"] = execution_timeframe
+            rows.append(row)
 
-                for timeframe, reason in symbol_errors.items():
-                    errors[f"{item.Symbol} | {timeframe}"] = reason
+            for timeframe, reason in symbol_errors.items():
+                errors[f"{item.Symbol} | {timeframe}"] = reason
 
-                done = len(rows)
-                progress.progress(
-                    done / max(len(symbols), 1),
-                    text=f"Scanned {done:,}/{len(symbols):,} symbols",
-                )
-                status.caption(f"Last processed: {item.Symbol}")
+            progress.progress(
+                i / max(len(symbols), 1),
+                text=f"Scanned {i:,}/{len(symbols):,} symbols",
+            )
+            status.caption(f"Last processed: {item.Symbol}")
 
         result_df = pd.DataFrame(rows)
         st.session_state["mtf_results"] = result_df
