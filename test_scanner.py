@@ -4,6 +4,7 @@ import pandas as pd
 
 from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr, scan_symbol
 from data_fetch import _extract_one
+import universe
 
 
 def sample_data():
@@ -41,7 +42,7 @@ def test_nse_universe_filters_eq_series_only():
         b"BBB,BE,Beta Ltd\n"
         b"CCC,EQ,Gamma Ltd\n"
     )
-    frame = _read_equity_csv(raw)
+    frame = _read_nse_equity_csv(raw)
     assert frame["SYMBOL"].tolist() == ["AAA", "CCC"]
     assert set(frame["SERIES"].tolist()) == {"EQ"}
 
@@ -81,3 +82,44 @@ def test_yfinance_multiindex_price_ticker_order():
     raw = pd.DataFrame([[10, 11, 9, 10.5, 100], [11, 12, 10, 11.5, 200], [12, 13, 11, 12.5, 300]], index=dates, columns=columns)
     extracted = _extract_one(raw, "TEST.NS")
     assert extracted["Close"].tolist() == [10.5, 11.5, 12.5]
+
+
+
+def test_bse_master_headered_csv_eq_filter():
+    raw = pd.DataFrame({
+        "Scrip Code": ["500001", "500002", "500003"],
+        "Instrument Code": ["AAA", "BBB", "CCC"],
+        "Group Name": ["A", "B", "A"],
+        "Scrip Name": ["Alpha Ltd", "Beta Bond", "Gamma Ltd"],
+        "ISIN CODE": ["INE000A01000", "INE000B01000", "INE000C01000"],
+        "Market Lot": ["1", "1", "1"],
+        "Face Value": ["10", "10", "10"],
+        "Security Type Flag": ["EQ", "DB", "EQ"],
+    })
+    parsed = universe._parse_bse_frame(raw)
+    assert parsed["SYMBOL"].tolist() == ["AAA", "CCC"]
+    assert parsed["NAME"].tolist() == ["Alpha Ltd", "Gamma Ltd"]
+
+
+def test_official_nifty_equity_index_catalog_is_comprehensive():
+    names = [name for name, _category in universe.NIFTY_EQUITY_INDEX_CATALOG]
+    assert len(names) >= 140
+    assert "NIFTY 50" in names
+    assert "NIFTY BANK" in names
+    assert "NIFTY INDIA DEFENCE" in names
+    assert "NIFTY200 MOMENTUM 30" in names
+    assert len(names) == len(set(name.upper() for name in names))
+
+
+def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
+    nse = pd.DataFrame([{"SYMBOL": "RELIANCE", "NAME": "Reliance Industries", "SERIES": "EQ"}])
+    bse = pd.DataFrame([{"SYMBOL": "TCS", "NAME": "Tata Consultancy Services"}])
+    monkeypatch.setattr(universe, "get_nse_equity_universe", lambda: nse)
+    monkeypatch.setattr(universe, "get_bse_equity_universe", lambda: (bse, "test BSE master"))
+    frame = universe.make_universe("All NSE + BSE stocks + all indices")
+    assert "RELIANCE.NS" in frame["Symbol"].tolist()
+    assert "TCS.BO" in frame["Symbol"].tolist()
+    assert (frame["Type"] == "Index").sum() >= 140
+    unmapped = frame[(frame["Type"] == "Index") & (~frame["DataAvailable"])]
+    assert len(unmapped) > 50
+    assert (unmapped["Symbol"] == "").all()
