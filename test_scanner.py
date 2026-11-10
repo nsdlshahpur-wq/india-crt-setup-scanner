@@ -112,12 +112,27 @@ def test_official_nifty_equity_index_catalog_is_comprehensive():
 def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
     nse = pd.DataFrame([{"SYMBOL": "RELIANCE", "NAME": "Reliance Industries", "SERIES": "EQ"}])
     bse = pd.DataFrame([{"SYMBOL": "TCS", "NAME": "Tata Consultancy Services"}])
+    sme = pd.DataFrame([{"SYMBOL": "ABC", "NAME": "ABC SME Ltd"}])
     monkeypatch.setattr(universe, "get_nse_equity_universe", lambda: nse)
+    monkeypatch.setattr(universe, "get_nse_sme_universe", lambda: sme)
     monkeypatch.setattr(universe, "get_bse_equity_universe", lambda: (bse, "test BSE master"))
     frame = universe.make_universe("All NSE + BSE stocks + all indices")
     assert "RELIANCE.NS" in frame["Symbol"].tolist()
+    assert "ABC.NS" in frame["Symbol"].tolist()
     assert "TCS.BO" in frame["Symbol"].tolist()
+    assert (frame["Exchange"] == "NSE-SME").sum() == 1
     assert (frame["Type"] == "Index").sum() >= 140
     unmapped = frame[(frame["Type"] == "Index") & (~frame["DataAvailable"])]
     assert len(unmapped) > 50
     assert (unmapped["Symbol"] == "").all()
+
+
+
+def test_nse_sme_csv_parser():
+    raw = (
+        b"SYMBOL,NAME OF COMPANY\n"
+        b"SMEONE,SME One Limited\n"
+        b"SMETWO,SME Two Limited\n"
+    )
+    frame = universe._read_nse_sme_csv(raw)
+    assert frame["SYMBOL"].tolist() == ["SMEONE", "SMETWO"]
