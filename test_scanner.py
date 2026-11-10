@@ -34,8 +34,6 @@ def test_monthly_context_uses_completed_months():
 
 
 def test_nse_universe_filters_eq_series_only():
-    from universe import _read_equity_csv
-
     raw = (
         b"SYMBOL,SERIES,NAME OF COMPANY\n"
         b"AAA,EQ,Alpha Ltd\n"
