@@ -515,8 +515,8 @@ def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
         "All India stocks + indices", "All NSE + BSE stocks + all indices",
     }
     want_bse = mode in {
-        "All BSE EQ stocks", "All NSE + BSE stocks", "All India stocks + indices",
-        "All NSE + BSE stocks + all indices",
+        "All BSE EQ stocks", "All NSE + BSE stocks", "All NSE + BSE stocks + SME",
+        "All India stocks + indices", "All NSE + BSE stocks + all indices",
     }
     want_indices = mode in {
         "All Indian indices", "Major Indian indices", "All India stocks + indices",
