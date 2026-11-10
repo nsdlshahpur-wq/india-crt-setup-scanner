@@ -17,9 +17,17 @@ with st.sidebar:
     st.header("Scanner Settings")
     universe_mode = st.selectbox(
         "Market universe",
-        ["All NSE EQ stocks + indices", "All NSE EQ stocks", "Major Indian indices", "Custom symbols"],
+        [
+            "All NSE + BSE stocks + all indices",
+            "All India stocks + indices",
+            "All NSE + BSE stocks",
+            "All NSE EQ stocks",
+            "All BSE EQ stocks",
+            "All Indian indices",
+            "Custom symbols",
+        ],
         index=0,
-        help="All NSE EQ stocks are loaded from the current NSE EQ-series security list. Yahoo Finance symbol coverage may vary.",
+        help="Loads NSE EQ stocks, BSE equity scrips and the Nifty equity-index catalogue. Only verified Yahoo tickers can be downloaded; unmapped indices are listed separately.",
     )
     custom_symbols = ""
     if universe_mode == "Custom symbols":
@@ -62,10 +70,15 @@ if refresh:
         with st.spinner("Loading the NSE symbol universe..."):
             universe = _load_universe(universe_mode, custom_symbols)
         if universe.empty:
-            st.error("इस चयन के लिए कोई symbol नहीं मिला। NSE list या symbol spelling जाँचें।")
+            st.error("इस चयन के लिए कोई symbol नहीं मिला। NSE/BSE master या symbol spelling जाँचें।")
             st.stop()
 
-        st.info(f"Universe में {len(universe):,} symbols हैं। Yahoo Finance से daily OHLC डेटा डाउनलोड हो रहा है।")
+        downloadable = universe[universe["Symbol"].fillna("").astype(str).str.strip().ne("")].copy()
+        unmapped = universe[universe["Symbol"].fillna("").astype(str).str.strip().eq("")].copy()
+        st.info(
+            f"Universe में {len(universe):,} entries हैं; {len(downloadable):,} के Yahoo Finance symbols mapped हैं। "
+            "Unmapped indices और unavailable data अलग सूची में दिखेंगे."
+        )
         progress = st.progress(0.0, text="Preparing data download...")
         status = st.empty()
 
@@ -83,21 +96,30 @@ if refresh:
             entry_valid_days=int(entry_valid_days),
         )
         price_map, errors = download_market_data(
-            universe["Symbol"].tolist(),
+            downloadable["Symbol"].drop_duplicates().tolist(),
             period=history_period,
             batch_size=int(batch_size),
             progress_callback=update_progress,
         )
+        for item in unmapped.itertuples(index=False):
+            if item.Type == "Source warning":
+                errors[f"{item.Exchange} | {item.Name}"] = "Exchange master could not be loaded"
+            else:
+                errors[f"{item.Exchange} INDEX | {item.Name}"] = "Official index is catalogued, but no verified Yahoo Finance ticker mapping is configured"
 
         rows = []
         scan_progress = st.progress(0.0, text="Calculating CRT setups...")
-        for i, item in enumerate(universe.itertuples(index=False), start=1):
+        scan_rows = downloadable.drop_duplicates(subset=["Symbol", "Name", "Exchange"])
+        total_scan_rows = max(len(scan_rows), 1)
+        for i, item in enumerate(scan_rows.itertuples(index=False), start=1):
             prices = price_map.get(item.Symbol)
             if prices is not None:
                 result = scan_symbol(item.Symbol, item.Name, prices, cfg)
                 if result:
+                    result["Exchange"] = item.Exchange
+                    result["Category"] = item.Category
                     rows.append(result)
-            scan_progress.progress(i / len(universe), text=f"Scanning {i:,}/{len(universe):,}")
+            scan_progress.progress(i / total_scan_rows, text=f"Scanning {i:,}/{len(scan_rows):,}")
 
         result_df = pd.DataFrame(rows)
         if not result_df.empty:
@@ -111,6 +133,7 @@ if refresh:
         st.session_state["scan_universe_count"] = len(universe)
         st.session_state["scan_data_count"] = len(price_map)
         st.session_state["scan_error_count"] = len(errors)
+        st.session_state["scan_unmapped_count"] = len(unmapped)
         st.session_state["scan_errors"] = errors
         st.session_state["scan_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
         st.rerun()
@@ -123,18 +146,20 @@ if "scan_results" in st.session_state:
     total_universe = st.session_state.get("scan_universe_count", 0)
     data_count = st.session_state.get("scan_data_count", 0)
     error_count = st.session_state.get("scan_error_count", 0)
+    unmapped_count = st.session_state.get("scan_unmapped_count", 0)
     scan_time = st.session_state.get("scan_time", "")
     buy_count = int((results["Setup"] == "BUY").sum()) if not results.empty else 0
     sell_count = int((results["Setup"] == "SELL").sum()) if not results.empty else 0
     sweep_count = int((results["Stage"] == 2).sum()) if not results.empty else 0
     wait_sweep_count = int((results["Stage"] == 1).sum()) if not results.empty else 0
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Symbols in universe", f"{total_universe:,}")
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Universe entries", f"{total_universe:,}")
     m2.metric("Data received", f"{data_count:,}")
     m3.metric("BUY setups", f"{buy_count:,}")
     m4.metric("SELL setups", f"{sell_count:,}")
     m5.metric("Wait Sweep / Entry", f"{wait_sweep_count:,} / {sweep_count:,}")
+    m6.metric("Unmapped catalogue", f"{unmapped_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
 
     if results.empty:
