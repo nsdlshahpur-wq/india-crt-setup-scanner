@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from data_fetch import download_market_data
@@ -132,6 +133,8 @@ if refresh:
                 result_df = result_df[result_df["Stage"] >= 1]
 
         st.session_state["scan_results"] = result_df
+        st.session_state["scan_price_map"] = price_map
+        st.session_state["scan_symbol_names"] = dict(zip(scan_rows["Symbol"], scan_rows["Name"]))
         st.session_state["scan_universe_count"] = len(universe)
         st.session_state["scan_data_count"] = len(price_map)
         st.session_state["scan_error_count"] = len(errors)
@@ -194,6 +197,80 @@ if "scan_results" in st.session_state:
         )
         csv = view.to_csv(index=False).encode("utf-8-sig")
         st.download_button("⬇️ Download CSV", csv, file_name="india_crt_scan_results.csv", mime="text/csv")
+
+    # Interactive CRT chart: uses the same daily OHLC data as the scanner.
+    price_map = st.session_state.get("scan_price_map", {})
+    if price_map:
+        st.divider()
+        st.subheader("📊 CRT Chart + Setup Levels")
+        chart_symbols = sorted(price_map.keys())
+        symbol_names = st.session_state.get("scan_symbol_names", {})
+        chart_symbol = st.selectbox(
+            "Chart के लिए शेयर / Index चुनें",
+            chart_symbols,
+            format_func=lambda symbol: f"{symbol} — {symbol_names.get(symbol, '')}",
+            key="crt_chart_symbol",
+        )
+        chart_data = price_map.get(chart_symbol)
+        if chart_data is not None and not chart_data.empty:
+            chart_data = chart_data.copy()
+            if isinstance(chart_data.columns, pd.MultiIndex):
+                chart_data.columns = [str(c[-1] if str(c[-1]).lower() in {"open", "high", "low", "close", "volume"} else c[0]).title() for c in chart_data.columns]
+            chart_data.columns = [str(c).title() for c in chart_data.columns]
+            required_chart_cols = ["Open", "High", "Low", "Close"]
+            if all(col in chart_data.columns for col in required_chart_cols):
+                chart_data = chart_data.dropna(subset=required_chart_cols).tail(250)
+                fig = go.Figure(
+                    data=[
+                        go.Candlestick(
+                            x=chart_data.index,
+                            open=chart_data["Open"],
+                            high=chart_data["High"],
+                            low=chart_data["Low"],
+                            close=chart_data["Close"],
+                            name=chart_symbol,
+                        )
+                    ]
+                )
+                match = results[results["Symbol"] == chart_symbol] if not results.empty else pd.DataFrame()
+                if not match.empty:
+                    setup_row = match.iloc[0]
+                    levels = [
+                        ("M1 High", setup_row.get("M1 High"), "gray", "dash"),
+                        ("M1 Low", setup_row.get("M1 Low"), "gray", "dash"),
+                        ("M2 High", setup_row.get("M2 High"), "royalblue", "dot"),
+                        ("M2 Low", setup_row.get("M2 Low"), "royalblue", "dot"),
+                        ("Entry", setup_row.get("Entry"), "green", "solid"),
+                        ("Stop Loss", setup_row.get("SL"), "red", "solid"),
+                        ("Target 1", setup_row.get("T1 (2R)"), "green", "dash"),
+                        ("Target 2", setup_row.get("T2 (M2 H/L)"), "purple", "dash"),
+                    ]
+                    for label, value, color, dash in levels:
+                        if pd.notna(value) and isinstance(value, (int, float)) and value > 0:
+                            fig.add_hline(
+                                y=float(value),
+                                line_color=color,
+                                line_dash=dash,
+                                annotation_text=f"{label}: {float(value):.2f}",
+                                annotation_position="right",
+                            )
+                    st.caption(
+                        f"Bias: {setup_row.get('Bias', '-')} · Setup: {setup_row.get('Setup', '-')} · "
+                        f"Last candle: {setup_row.get('Last Candle', '-')}"
+                    )
+                fig.update_layout(
+                    title=f"{chart_symbol} — Daily Candlestick (last 250 candles)",
+                    xaxis_title="Date",
+                    yaxis_title="Price",
+                    xaxis_rangeslider_visible=False,
+                    height=620,
+                    template="plotly_white",
+                    margin=dict(l=20, r=30, t=60, b=20),
+                    legend=dict(orientation="h"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("इस symbol के लिए OHLC chart columns उपलब्ध नहीं हैं।")
 
     errors = st.session_state.get("scan_errors", {})
     if errors:
