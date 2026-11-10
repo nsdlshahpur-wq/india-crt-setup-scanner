@@ -178,7 +178,7 @@ if "scan_results" in st.session_state:
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
             "Symbol", "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
-            "T2 (M1 H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
+            "Target (M1 Monthly H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
             "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]]
@@ -191,7 +191,7 @@ if "scan_results" in st.session_state:
                 "Entry": st.column_config.NumberColumn(format="₹%.2f"),
                 "SL": st.column_config.NumberColumn(format="₹%.2f"),
                 "T1 (2R)": st.column_config.NumberColumn(format="₹%.2f"),
-                "T2 (M2 H/L)": st.column_config.NumberColumn(format="₹%.2f"),
+                "Target (M1 Monthly H/L)": st.column_config.NumberColumn(format="₹%.2f"),
                 "Invalidation": st.column_config.NumberColumn(format="₹%.2f"),
             },
         )
