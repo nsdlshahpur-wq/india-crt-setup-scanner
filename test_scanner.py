@@ -116,6 +116,9 @@ def test_official_nifty_equity_index_catalog_is_comprehensive():
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY MNC"] == "^CNXMNC"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY PSE"] == "^CNXPSE"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY CONSUMPTION"] == "^CNXCONSUM"
+    assert universe.YAHOO_INDEX_SYMBOLS["NIFTY MIDCAP 150"] == "NIFTYMIDCAP150.NS"
+    assert universe.YAHOO_INDEX_SYMBOLS["NIFTY 500"] == "^CRSLDX"
+    assert universe.YAHOO_INDEX_SYMBOLS["NIFTY TOTAL MARKET"] == "NIFTY_TOTAL_MKT.NS"
 
 
 def test_all_india_universe_keeps_unmapped_indices_visible(monkeypatch):
