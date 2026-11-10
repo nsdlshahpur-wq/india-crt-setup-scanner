@@ -284,6 +284,17 @@ if "scan_results" in st.session_state:
             key="crt_chart_symbol",
         )
 
+        # TradingView live chart embedded directly in the scanner.
+        tv_index_map = {"^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY", "^BSESN": "BSE:SENSEX"}
+        if chart_symbol.startswith("^"):
+            tv_chart_symbol = tv_index_map.get(chart_symbol, "NSE:" + chart_symbol.lstrip("^"))
+        elif chart_symbol.endswith(".NS"):
+            tv_chart_symbol = "NSE:" + chart_symbol[:-3]
+        elif chart_symbol.endswith(".BO"):
+            tv_chart_symbol = "BSE:" + chart_symbol[:-3]
+        else:
+            tv_chart_symbol = "NSE:" + chart_symbol
+
         # Multi-timeframe CRT analysis runs only for the selected symbol because
         # intraday history is rate-limited and not available for every Indian ticker.
         st.divider()
@@ -362,16 +373,6 @@ if "scan_results" in st.session_state:
         else:
             st.info("पहले ऊपर का **Analyze all 5 timeframe pairs** बटन दबाएँ। Intraday analysis केवल चुने हुए symbol पर चलेगा।")
 
-        # TradingView live chart embedded directly in the scanner.
-        tv_index_map = {"^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY", "^BSESN": "BSE:SENSEX"}
-        if chart_symbol.startswith("^"):
-            tv_chart_symbol = tv_index_map.get(chart_symbol, "NSE:" + chart_symbol.lstrip("^"))
-        elif chart_symbol.endswith(".NS"):
-            tv_chart_symbol = "NSE:" + chart_symbol[:-3]
-        elif chart_symbol.endswith(".BO"):
-            tv_chart_symbol = "BSE:" + chart_symbol[:-3]
-        else:
-            tv_chart_symbol = "NSE:" + chart_symbol
         tv_interval_label = st.selectbox(
             "TradingView Chart Timeframe",
             ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"],
