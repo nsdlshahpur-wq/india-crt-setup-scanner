@@ -18,6 +18,7 @@ import requests
 DATA_DIR = Path(__file__).resolve().parent / "data"
 NSE_CACHE_FILE = DATA_DIR / "EQUITY_L.csv"
 BSE_CACHE_FILE = DATA_DIR / "BSE_EQ_SCRIP.csv"
+BSE_SOURCE_FILE = DATA_DIR / "BSE_EQ_SCRIP_SOURCE.txt"
 NSE_HOME = "https://www.nseindia.com/"
 NSE_EQUITY_CSV = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 BSE_SCRIP_ZIP = "https://www.bseindia.com/downloads/Help/file/scrip.zip"
@@ -316,7 +317,8 @@ def get_bse_equity_universe(force_refresh: bool = False) -> tuple[pd.DataFrame, 
             cached = _parse_bse_frame(pd.read_csv(BSE_CACHE_FILE, dtype=str))
             fresh = time.time() - BSE_CACHE_FILE.stat().st_mtime < 24 * 60 * 60
             if not force_refresh and fresh and not cached.empty:
-                return cached, "BSE scrip master cache (up to 24 hours)"
+                source_note = BSE_SOURCE_FILE.read_text(encoding="utf-8").strip() if BSE_SOURCE_FILE.exists() else "BSE equity scrip cache"
+                return cached, source_note + " (cached up to 24 hours)"
         except Exception:
             cached = None
 
@@ -326,6 +328,7 @@ def get_bse_equity_universe(force_refresh: bool = False) -> tuple[pd.DataFrame, 
         response.raise_for_status()
         frame = _read_bse_zip(response.content)
         frame.to_csv(BSE_CACHE_FILE, index=False)
+        BSE_SOURCE_FILE.write_text("BSE official SCRIP.ZIP master", encoding="utf-8")
         return frame, "BSE official SCRIP.ZIP master"
     except Exception:
         if cached is not None and not cached.empty:
@@ -333,6 +336,7 @@ def get_bse_equity_universe(force_refresh: bool = False) -> tuple[pd.DataFrame, 
         frame = _fetch_bse_bhavcopy_fallback(session)
         frame.to_csv(BSE_CACHE_FILE, index=False)
         note = str(frame["SOURCE_NOTE"].iloc[0]) if "SOURCE_NOTE" in frame.columns else "Recent BSE bhavcopy"
+        BSE_SOURCE_FILE.write_text(note, encoding="utf-8")
         return frame, note
 
 
