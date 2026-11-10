@@ -482,7 +482,7 @@ def get_bse_equity_universe(force_refresh: bool = False) -> tuple[pd.DataFrame, 
         return frame, note
 
 
-def _index_rows(include_all: bool = True) -> list[dict[str, str | bool]]:
+def _index_rows() -> list[dict[str, str | bool]]:
     rows: list[dict[str, str | bool]] = []
     seen = set()
     for name, category in NIFTY_EQUITY_INDEX_CATALOG:
@@ -491,6 +491,8 @@ def _index_rows(include_all: bool = True) -> list[dict[str, str | bool]]:
             continue
         seen.add(key)
         provider_symbol = YAHOO_INDEX_SYMBOLS.get(key, "")
+        if not provider_symbol:
+            continue
         rows.append({
             "Symbol": provider_symbol,
             "Name": name,
@@ -504,6 +506,8 @@ def _index_rows(include_all: bool = True) -> list[dict[str, str | bool]]:
         if key in seen:
             continue
         seen.add(key)
+        if not provider_symbol:
+            continue
         rows.append({
             "Symbol": provider_symbol,
             "Name": name,
@@ -518,8 +522,9 @@ def _index_rows(include_all: bool = True) -> list[dict[str, str | bool]]:
 def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
     """Build selected NSE/BSE stock and index universe.
 
-    Rows with blank Symbol are official catalogue entries whose Yahoo Finance
-    ticker has not been verified. The dashboard reports these separately.
+    Index mode returns only entries with an explicit Yahoo Finance ticker mapping.
+    Main app "All Stocks" maps to NSE main-board EQ to avoid thousands of duplicate
+    BSE listings and low-liquidity SME instruments in a single Yahoo scan.
     """
     rows: list[dict[str, str | bool]] = []
     want_nse = mode in {
