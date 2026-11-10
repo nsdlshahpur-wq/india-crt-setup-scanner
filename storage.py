@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +26,21 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _connection():
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def init_db() -> None:
-    with _connect() as conn:
+    with _connection() as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS watchlist (
@@ -73,7 +87,7 @@ def add_watchlist(symbol: str, label: str = "") -> bool:
     clean = symbol.strip().upper()
     if not clean:
         raise ValueError("Symbol is required.")
-    with _connect() as conn:
+    with _connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO watchlist(symbol, label, active) VALUES(?,?,1)",
             (clean, label.strip()),
@@ -83,20 +97,20 @@ def add_watchlist(symbol: str, label: str = "") -> bool:
 
 def remove_watchlist(symbol: str) -> None:
     init_db()
-    with _connect() as conn:
+    with _connection() as conn:
         conn.execute("DELETE FROM watchlist WHERE symbol=?", (symbol.strip().upper(),))
 
 
 def list_watchlist() -> pd.DataFrame:
     init_db()
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute("SELECT symbol AS Symbol, label AS Name, active AS Active, created_at AS Added FROM watchlist ORDER BY symbol").fetchall()
     return pd.DataFrame([dict(r) for r in rows], columns=["Symbol", "Name", "Active", "Added"])
 
 
 def add_alert(dedupe_key: str, symbol: str, timeframe: str, status: str, message: str) -> bool:
     init_db()
-    with _connect() as conn:
+    with _connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO alert_log(dedupe_key,symbol,timeframe,status,message) VALUES(?,?,?,?,?)",
             (dedupe_key, symbol, timeframe, status, message),
@@ -106,7 +120,7 @@ def add_alert(dedupe_key: str, symbol: str, timeframe: str, status: str, message
 
 def list_alerts(limit: int = 250) -> pd.DataFrame:
     init_db()
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute(
             "SELECT created_at AS Time, symbol AS Symbol, timeframe AS Timeframe, status AS Status, message AS Alert FROM alert_log ORDER BY id DESC LIMIT ?",
             (int(limit),),
@@ -125,7 +139,7 @@ def add_trade(
         raise ValueError("Valid symbol and BUY/SELL side are required.")
     if entry <= 0 or quantity < 1 or costs < 0:
         raise ValueError("Entry, quantity or costs are invalid.")
-    with _connect() as conn:
+    with _connection() as conn:
         cur = conn.execute(
             """INSERT INTO trade_journal
             (symbol,side,setup,timeframe,trade_date,entry,stop_loss,target,quantity,costs,notes)
@@ -148,7 +162,7 @@ def list_trades(status: str | None = None) -> pd.DataFrame:
         sql += " WHERE status=?"
         params = (status,)
     sql += " ORDER BY id DESC"
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute(sql, params).fetchall()
     return pd.DataFrame([dict(r) for r in rows])
 
@@ -157,7 +171,7 @@ def close_trade(trade_id: int, exit_date: str, exit_price: float, extra_costs: f
     init_db()
     if exit_price <= 0 or extra_costs < 0:
         raise ValueError("Exit price and costs are invalid.")
-    with _connect() as conn:
+    with _connection() as conn:
         row = conn.execute("SELECT * FROM trade_journal WHERE id=? AND status='OPEN'", (int(trade_id),)).fetchone()
         if row is None:
             raise ValueError("Open trade not found.")
