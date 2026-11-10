@@ -337,7 +337,7 @@ if "scan_results" in st.session_state:
                     f'**✓ {crt_tf} CRT → {entry_tf} Entry:** [Open {entry_tf} chart on TradingView]({tv_pair_url})'
                 )
             if tv_link_rows:
-                st.markdown("\\n".join(tv_link_rows))
+                st.markdown("\n".join(tv_link_rows))
             else:
                 st.info("अभी कोई valid CRT नहीं मिला। Invalid / unconfirmed CRT को mark नहीं किया गया है।")
 
