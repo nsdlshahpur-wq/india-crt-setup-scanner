@@ -13,7 +13,6 @@ class ScanConfig:
     displacement_atr: float = 1.2
     pivot_left: int = 3
     pivot_right: int = 3
-    sweep_lookback: int = 10
     entry_valid_days: int = 3
 
 def _normalise_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
@@ -66,9 +65,10 @@ def _monthly_context(data:pd.DataFrame)->dict[str,Any]|None:
     if ctx is None:return None
     return {k:v for k,v in ctx.items() if k in {"m1_high","m1_low","m2_high","m2_low","m2_close","m2_start","m1_period","m2_period"}}
 
-def _zones(data:pd.DataFrame, start:int, end:int, direction:int):
-    """Collect directional FVGs, IFVGs (failed opposing FVGs), and OBs as price intervals."""
+def _zones(data:pd.DataFrame, start:int, end:int, direction:int, config:ScanConfig):
+    """Collect directional FVGs, IFVGs and OBs using configured ATR displacement."""
     fvg=[]; ifvg=[]; ob=[]
+    atr_values = _wilder_atr(data, config.atr_length)
     for i in range(max(start+2,2),end+1):
         # FVG: classic three-candle gap, with direction.
         if direction==1 and data.Low.iloc[i]>data.High.iloc[i-2]:
@@ -83,10 +83,10 @@ def _zones(data:pd.DataFrame, start:int, end:int, direction:int):
         # OB proxy: last opposite candle before directional displacement; range = full candle.
         if i>=1:
             opposite=(data.Close.iloc[i-1]<data.Open.iloc[i-1]) if direction==1 else (data.Close.iloc[i-1]>data.Open.iloc[i-1])
-            atr=_wilder_atr(data.iloc[:i+1],14).iloc[-1]
+            atr=atr_values.iloc[i]
             body=abs(data.Close.iloc[i]-data.Open.iloc[i])
             displacement=(data.Close.iloc[i]>data.Open.iloc[i] if direction==1 else data.Close.iloc[i]<data.Open.iloc[i])
-            if opposite and displacement and pd.notna(atr) and body>=1.2*atr:
+            if opposite and displacement and pd.notna(atr) and body>=config.displacement_atr*atr:
                 ob.append((float(data.Low.iloc[i-1]),float(data.High.iloc[i-1]),i))
     return fvg,ifvg,ob
 
@@ -113,7 +113,7 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                 broken=(data.Close.iloc[i]>prior) if direction==1 and pd.notna(prior) else ((data.Close.iloc[i]<prior) if direction==-1 and pd.notna(prior) else False)
                 if broken: ch_idx=i; break
             if ch_idx is not None:
-                fvg,ifvg,ob=_zones(data,start,ch_idx,direction)
+                fvg,ifvg,ob=_zones(data,start,ch_idx,direction,config)
                 # Strict confluence: overlap of at least one FVG, IFVG and OB interval.
                 common=None
                 for zf in fvg:
@@ -126,7 +126,8 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                 if common:
                     zone_low,zone_high=common
                     # Retest then confirmation close in expected direction, after CHoCH.
-                    for i in range(ch_idx+1,last+1):
+                    entry_start = max(ch_idx + 1, last - max(1, config.entry_valid_days) + 1)
+                    for i in range(entry_start,last+1):
                         touched=data.Low.iloc[i]<=zone_high and data.High.iloc[i]>=zone_low
                         confirm=data.Close.iloc[i]>data.Open.iloc[i] and data.Close.iloc[i]>zone_high if direction==1 else data.Close.iloc[i]<data.Open.iloc[i] and data.Close.iloc[i]<zone_low
                         if touched and confirm:
