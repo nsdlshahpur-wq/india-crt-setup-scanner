@@ -23,7 +23,7 @@ if scan_map:
     )
     use_last_scan = st.checkbox("Use last scan data", value=True)
 else:
-    symbol = st.text_input("NSE / BSE Yahoo symbol", "RELIANCE.NS")
+    symbol = st.text_input("NSE / BSE symbol (bare NSE symbols are auto-mapped to .NS)", "RELIANCE")
     use_last_scan = False
 
 with st.sidebar:
