@@ -9,6 +9,8 @@ def test_yahoo_ticker_resolves_bare_indian_equity():
     assert data_fetch.yahoo_ticker("reliance.ns") == "RELIANCE.NS"
     assert data_fetch.yahoo_ticker("500325.BO") == "500325.BO"
     assert data_fetch.yahoo_ticker("^NSEI") == "^NSEI"
+    assert data_fetch.yahoo_ticker("NIFTY 50") == "^NSEI"
+    assert data_fetch.yahoo_ticker("BANK NIFTY") == "^NSEBANK"
 
 
 def test_download_market_data_returns_requested_key_for_bare_symbol(monkeypatch):
