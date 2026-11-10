@@ -17,6 +17,19 @@ def yahoo_ticker(symbol: str) -> str:
     ticker = str(symbol or "").strip().upper()
     if not ticker:
         return ""
+    index_aliases = {
+        "NIFTY": "^NSEI",
+        "NIFTY 50": "^NSEI",
+        "NIFTY50": "^NSEI",
+        "NIFTY BANK": "^NSEBANK",
+        "BANK NIFTY": "^NSEBANK",
+        "BANKNIFTY": "^NSEBANK",
+        "SENSEX": "^BSESN",
+        "BSE SENSEX": "^BSESN",
+        "INDIA VIX": "^INDIAVIX",
+    }
+    if ticker in index_aliases:
+        return index_aliases[ticker]
     if ticker.startswith("^") or ticker.endswith((".NS", ".BO")):
         return ticker
     # Yahoo Finance's standard convention for Indian cash equities.
