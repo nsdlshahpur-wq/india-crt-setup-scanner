@@ -173,7 +173,7 @@ if "scan_results" in st.session_state:
         stage_filter = st.multiselect(
             "Show stages",
             ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "-"],
-            default=["BUY", "SELL", "Wait Entry", "Wait Sweep"],
+            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
