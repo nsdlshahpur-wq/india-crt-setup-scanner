@@ -5,7 +5,6 @@ from datetime import datetime
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
@@ -22,10 +21,9 @@ with st.sidebar:
         "Market universe",
         ["All Stocks", "All Index"],
         index=0,
-        help="All Stocks: NSE + BSE equity shares including SME. All Index: available Indian equity and benchmark indices.",
+        help="All Stocks: NSE main-board EQ shares. BSE duplicate listings and SME scrips are excluded to keep the scan fast. All Index: only indices with a Yahoo Finance ticker mapping.",
     )
-    history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=2)
-    batch_size = st.slider("Download batch size", min_value=10, max_value=80, value=30, step=10)
+    history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=0)
     st.divider()
     st.subheader("Strategy")
     atr_length = st.number_input("ATR Length", min_value=2, max_value=100, value=14)
@@ -51,7 +49,7 @@ with col_b:
 @st.cache_data(ttl=1800, show_spinner=False)
 def _load_universe(mode: str) -> pd.DataFrame:
     source_mode = {
-        "All Stocks": "All NSE + BSE stocks + SME",
+        "All Stocks": "All NSE EQ stocks",
         "All Index": "All Indian indices",
     }[mode]
     return make_universe(source_mode)
@@ -87,12 +85,30 @@ if refresh:
             sweep_lookback=int(sweep_lookback),
             entry_valid_days=int(entry_valid_days),
         )
-        price_map, errors = download_market_data(
-            downloadable["Symbol"].drop_duplicates().tolist(),
-            period=history_period,
-            batch_size=int(batch_size),
-            progress_callback=update_progress,
-        )
+
+        # Keep the downloaded OHLC cache in this Streamlit session. Re-running
+        # the same universe/history after changing filters or strategy settings
+        # should not download thousands of candles again.
+        requested_symbols = downloadable["Symbol"].drop_duplicates().tolist()
+        download_key = (universe_mode, history_period, tuple(requested_symbols))
+        cached_download = st.session_state.get("_market_download_cache")
+        if cached_download and cached_download.get("key") == download_key:
+            price_map = cached_download["price_map"]
+            errors = cached_download["errors"]
+            progress.progress(1.0, text=f"Reusing {len(price_map):,} cached symbols")
+            status.caption("Using the previously downloaded market data in this session.")
+        else:
+            price_map, errors = download_market_data(
+                requested_symbols,
+                period=history_period,
+                batch_size=80,
+                progress_callback=update_progress,
+            )
+            st.session_state["_market_download_cache"] = {
+                "key": download_key,
+                "price_map": price_map,
+                "errors": errors,
+            }
         for item in unmapped.itertuples(index=False):
             if item.Type == "Source warning":
                 errors[f"{item.Exchange} | {item.Name}"] = "Exchange master could not be loaded"
@@ -101,16 +117,18 @@ if refresh:
 
         rows = []
         scan_progress = st.progress(0.0, text="Calculating CRT setups...")
-        scan_rows = downloadable.drop_duplicates(subset=["Symbol", "Name", "Exchange"])
+        # Only process symbols for which OHLC data was actually downloaded.
+        scan_rows = downloadable[
+            downloadable["Symbol"].isin(price_map)
+        ].drop_duplicates(subset=["Symbol", "Name", "Exchange"])
         total_scan_rows = max(len(scan_rows), 1)
         for i, item in enumerate(scan_rows.itertuples(index=False), start=1):
-            prices = price_map.get(item.Symbol)
-            if prices is not None:
-                result = scan_symbol(item.Symbol, item.Name, prices, cfg)
-                if result:
-                    result["Exchange"] = item.Exchange
-                    result["Category"] = item.Category
-                    rows.append(result)
+            prices = price_map[item.Symbol]
+            result = scan_symbol(item.Symbol, item.Name, prices, cfg)
+            if result:
+                result["Exchange"] = item.Exchange
+                result["Category"] = item.Category
+                rows.append(result)
             scan_progress.progress(i / total_scan_rows, text=f"Scanning {i:,}/{len(scan_rows):,}")
 
         result_df = pd.DataFrame(rows)
@@ -220,7 +238,8 @@ if "scan_results" in st.session_state:
         selected_rows_for_tv = st.session_state.get("setup_results_table", {}).get("selection", {}).get("rows", [])
         if selected_rows_for_tv:
             try:
-                selected_tv_row = view.iloc[int(selected_rows_for_tv[0])]
+                selected_view_index = view.index[int(selected_rows_for_tv[0])]
+                selected_tv_row = results.loc[selected_view_index]
                 raw_tv_symbol = str(selected_tv_row["Symbol"]).strip()
                 tv_exchange = str(selected_tv_row.get("Exchange", "NSE")).upper()
                 if raw_tv_symbol.startswith("^"):
@@ -287,7 +306,8 @@ if "scan_results" in st.session_state:
         selected_setup_symbol = None
         if selected_rows and not results.empty:
             try:
-                selected_setup_symbol = str(view.iloc[int(selected_rows[0])]["Symbol"])
+                selected_view_index = view.index[int(selected_rows[0])]
+                selected_setup_symbol = str(results.loc[selected_view_index, "Symbol"])
             except (IndexError, KeyError, ValueError):
                 selected_setup_symbol = None
         preferred_chart_symbol = selected_setup_symbol if selected_setup_symbol in chart_symbols else chart_symbols[0]
