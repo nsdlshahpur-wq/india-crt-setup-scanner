@@ -167,12 +167,33 @@ if "scan_results" in st.session_state:
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
-            "Symbol", "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
+            "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
             "Target (M1 Monthly H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
             "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
-        view = view[[c for c in preferred if c in view.columns]]
-        st.caption("BUY / SELL या किसी setup की row select करें, फिर नीचे TradingView chart खोलें।")
+        view = view[[c for c in preferred if c in view.columns]].copy()
+
+        # Make the displayed company/index name itself a direct TradingView link.
+        # Keep Symbol in the underlying results for internal selection/chart logic only.
+        def _tv_url_for_row(row):
+            raw_symbol = str(row.get("Symbol", "")).strip()
+            exchange = str(row.get("Exchange", "NSE")).upper()
+            if raw_symbol.startswith("^"):
+                index_map = {"^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY", "^BSESN": "BSE:SENSEX"}
+                tv_symbol = index_map.get(raw_symbol, raw_symbol.lstrip("^"))
+            elif raw_symbol.endswith(".NS"):
+                tv_symbol = "NSE:" + raw_symbol[:-3]
+            elif raw_symbol.endswith(".BO"):
+                tv_symbol = "BSE:" + raw_symbol[:-3]
+            else:
+                tv_symbol = ("BSE:" if "BSE" in exchange else "NSE:") + raw_symbol
+            return "https://www.tradingview.com/chart/?symbol=" + tv_symbol.replace(" ", "%20")
+
+        view["Name"] = [
+            _tv_url_for_row(row)
+            for row in results.loc[view.index].to_dict("records")
+        ]
+        st.caption("कंपनी / Index के Name पर क्लिक करके TradingView chart खोलें। किसी row को select करने पर नीचे CRT levels और chart details दिखेंगे।")
         st.dataframe(
             view,
             use_container_width=True,
@@ -181,6 +202,7 @@ if "scan_results" in st.session_state:
             selection_mode="single-row",
             key="setup_results_table",
             column_config={
+                "Name": st.column_config.LinkColumn("Name", display_text="Open chart ↗"),
                 "LTP": st.column_config.NumberColumn(format="₹%.2f"),
                 "Entry": st.column_config.NumberColumn(format="₹%.2f"),
                 "SL": st.column_config.NumberColumn(format="₹%.2f"),
