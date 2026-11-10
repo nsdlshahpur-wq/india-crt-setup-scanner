@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
@@ -281,6 +282,32 @@ if "scan_results" in st.session_state:
             format_func=lambda symbol: f"{symbol} — {symbol_names.get(symbol, '')}",
             key="crt_chart_symbol",
         )
+        # TradingView live chart embedded directly in the scanner.
+        tv_index_map = {"^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY", "^BSESN": "BSE:SENSEX"}
+        if chart_symbol.startswith("^"):
+            tv_chart_symbol = tv_index_map.get(chart_symbol, "NSE:" + chart_symbol.lstrip("^"))
+        elif chart_symbol.endswith(".NS"):
+            tv_chart_symbol = "NSE:" + chart_symbol[:-3]
+        elif chart_symbol.endswith(".BO"):
+            tv_chart_symbol = "BSE:" + chart_symbol[:-3]
+        else:
+            tv_chart_symbol = "NSE:" + chart_symbol
+        tv_embed_url = (
+            "https://www.tradingview.com/widgetembed/?"
+            f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval=D"
+            "&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6"
+            "&studies=EMA%4020%2CEMA%4050&theme=light&style=1&timezone=Asia%2FKolkata"
+            "&withdateranges=1&showpopupbutton=1&locale=en"
+        )
+        st.subheader("📉 TradingView Chart")
+        components.html(
+            f'<iframe src="{tv_embed_url}" style="width:100%;height:620px;border:0;" '
+            'allowfullscreen loading="lazy"></iframe>',
+            height=630,
+            scrolling=False,
+        )
+        st.caption("TradingView chart is embedded above. Scanner-derived CRT levels remain available in the scanner chart below.")
+
         chart_data = price_map.get(chart_symbol)
         if chart_data is not None and not chart_data.empty:
             chart_data = chart_data.copy()
