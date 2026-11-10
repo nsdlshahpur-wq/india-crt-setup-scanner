@@ -19,6 +19,18 @@ jobs:
       - run: python -m compileall -q .
       - run: python -m pytest -q
 
+  exchange-universe-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: python market_universe_smoke_test.py
+
   live-market-smoke:
     runs-on: ubuntu-latest
     continue-on-error: true
