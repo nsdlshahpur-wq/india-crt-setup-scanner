@@ -301,6 +301,31 @@ if "scan_results" in st.session_state:
 
         if st.session_state.get("mtf_symbol") == chart_symbol and st.session_state.get("mtf_rows"):
             mtf_df = pd.DataFrame(st.session_state["mtf_rows"])
+            # Make the matching timeframe chart appear immediately alongside its row.
+            if "mtf_chart_tf" not in st.session_state:
+                st.session_state["mtf_chart_tf"] = "Daily"
+            mtf_chart_tf = st.selectbox(
+                "Matrix ke saath chart timeframe",
+                ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"],
+                key="mtf_chart_tf",
+            )
+            mtf_chart_code = {
+                "Monthly": "M", "Weekly": "W", "Daily": "D",
+                "4H": "240", "1H": "60", "30m": "30", "5m": "5", "1m": "1",
+            }[mtf_chart_tf]
+            mtf_tv_url = (
+                "https://www.tradingview.com/widgetembed/?"
+                f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval={mtf_chart_code}"
+                "&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6"
+                "&studies=EMA%4020%2CEMA%4050&theme=light&style=1&timezone=Asia%2FKolkata"
+                "&withdateranges=1&showpopupbutton=1&locale=en"
+            )
+            components.html(
+                f'<iframe src="{mtf_tv_url}" style="width:100%;height:520px;border:0;" '
+                'allowfullscreen loading="lazy"></iframe>',
+                height=530,
+                scrolling=False,
+            )
             st.dataframe(
                 mtf_df,
                 use_container_width=True,
