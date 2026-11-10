@@ -51,7 +51,7 @@ def test_selected_4h_crt_uses_hourly_source_and_5m_entry(monkeypatch):
     assert result["Entry TF"] == "5m"
     assert result["CRT Status"] == "NO SWEEP"
     assert errors == {}
-    assert ("RELIANCE.NS", "1h", "730d") in calls
+    assert ("RELIANCE.NS", "60m", "730d") in calls
     assert ("RELIANCE.NS", "5m", "60d") in calls
 
 
