@@ -2,7 +2,8 @@
 import numpy as np
 import pandas as pd
 
-from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr
+from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr, scan_symbol
+from data_fetch import _extract_one
 
 
 def sample_data():
@@ -56,3 +57,27 @@ if __name__ == "__main__":
     test_normalise_and_atr()
     test_monthly_context_uses_completed_months()
     print("Offline scanner tests passed")
+
+
+def test_scan_symbol_returns_complete_row():
+    result = scan_symbol("TEST.NS", "Test Company", sample_data(), ScanConfig())
+    assert result is not None
+    assert result["Symbol"] == "TEST.NS"
+    assert result["Bias"] in {"Bullish", "Bearish", "Neutral"}
+    assert result["Setup"] in {"BUY", "SELL", "Wait Entry", "Wait Sweep", "-"}
+
+
+def test_yfinance_multiindex_ticker_price_order():
+    dates = pd.bdate_range("2025-01-01", periods=3)
+    columns = pd.MultiIndex.from_product([["TEST.NS"], ["Open", "High", "Low", "Close", "Volume"]])
+    raw = pd.DataFrame([[10, 12, 9, 11, 100], [11, 13, 10, 12, 200], [12, 14, 11, 13, 300]], index=dates, columns=columns)
+    extracted = _extract_one(raw, "TEST.NS")
+    assert extracted["Close"].tolist() == [11, 12, 13]
+
+
+def test_yfinance_multiindex_price_ticker_order():
+    dates = pd.bdate_range("2025-01-01", periods=3)
+    columns = pd.MultiIndex.from_product([["Open", "High", "Low", "Close", "Volume"], ["TEST.NS"]])
+    raw = pd.DataFrame([[10, 11, 9, 10.5, 100], [11, 12, 10, 11.5, 200], [12, 13, 11, 12.5, 300]], index=dates, columns=columns)
+    extracted = _extract_one(raw, "TEST.NS")
+    assert extracted["Close"].tolist() == [10.5, 11.5, 12.5]
