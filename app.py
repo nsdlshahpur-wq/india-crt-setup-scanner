@@ -221,6 +221,38 @@ if "scan_results" in st.session_state:
                     tv_symbol = ("BSE:" if "BSE" in tv_exchange else "NSE:") + raw_tv_symbol
                 tv_url = "https://www.tradingview.com/chart/?symbol=" + tv_symbol.replace(" ", "%20")
                 st.link_button(f"📉 Open {tv_symbol} on TradingView", tv_url, type="primary")
+
+                # Pine Script overlay for the selected setup's static CRT levels.
+                def pine_level(value):
+                    try:
+                        number = float(value)
+                        return f"{number:.6f}" if pd.notna(number) else "na"
+                    except (TypeError, ValueError):
+                        return "na"
+
+                pine_lines = [
+                    "//@version=5",
+                    f'indicator("India CRT Levels — {raw_tv_symbol}", overlay=true)',
+                    f'm1High = {pine_level(selected_tv_row.get("M1 High"))}',
+                    f'm1Low = {pine_level(selected_tv_row.get("M1 Low"))}',
+                    f'm2High = {pine_level(selected_tv_row.get("M2 High"))}',
+                    f'm2Low = {pine_level(selected_tv_row.get("M2 Low"))}',
+                    f'entryPrice = {pine_level(selected_tv_row.get("Entry"))}',
+                    f'stopPrice = {pine_level(selected_tv_row.get("SL"))}',
+                    f'target2R = {pine_level(selected_tv_row.get("T1 (2R)"))}',
+                    f'm1Target = {pine_level(selected_tv_row.get("Target (M1 Monthly H/L)"))}',
+                    'plot(m1High, "M1 High", color=color.gray, linewidth=2)',
+                    'plot(m1Low, "M1 Low", color=color.gray, linewidth=2)',
+                    'plot(m2High, "M2 High", color=color.blue, style=plot.style_linebr)',
+                    'plot(m2Low, "M2 Low", color=color.blue, style=plot.style_linebr)',
+                    'plot(entryPrice, "Entry", color=color.green, linewidth=2)',
+                    'plot(stopPrice, "Stop Loss", color=color.red, linewidth=2)',
+                    'plot(target2R, "Target 2R", color=color.lime, linewidth=2)',
+                    'plot(m1Target, "M1 Full-Month Target", color=color.purple, linewidth=2)',
+                ]
+                with st.expander("🧩 TradingView पर CRT Entry / SL / Target lines लगाएँ"):
+                    st.write("नीचे Pine Script copy करें, TradingView के Pine Editor में paste करके **Add to chart** दबाएँ। यह चुने हुए setup के levels दिखाएगा।")
+                    st.code("\\n".join(pine_lines), language="pine")
             except (IndexError, KeyError, ValueError):
                 st.info("TradingView link बनाने के लिए पहले setup row select करें।")
         csv = view.to_csv(index=False).encode("utf-8-sig")
