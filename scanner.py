@@ -60,6 +60,12 @@ def _three_month_context(data:pd.DataFrame)->dict[str,Any]|None:
         m2_close=float(m2.Close),m2_start=rows2.index[0],m3_start=rows3.index[0],
         m1_period=str(m1p),m2_period=str(m2p),m3_period=str(m3p),bias=1 if bull else (-1 if bear else 0))
 
+def _monthly_context(data:pd.DataFrame)->dict[str,Any]|None:
+    """Compatibility helper exposing the last two completed monthly ranges."""
+    ctx=_three_month_context(data)
+    if ctx is None:return None
+    return {k:v for k,v in ctx.items() if k in {"m1_high","m1_low","m2_high","m2_low","m2_close","m2_start","m1_period","m2_period"}}
+
 def _zones(data:pd.DataFrame, start:int, end:int, direction:int):
     """Collect directional FVGs, IFVGs (failed opposing FVGs), and OBs as price intervals."""
     fvg=[]; ifvg=[]; ob=[]
