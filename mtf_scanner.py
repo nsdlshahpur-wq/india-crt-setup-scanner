@@ -105,7 +105,9 @@ def _completed(frame: pd.DataFrame, timeframe: str) -> pd.DataFrame:
             return frame.iloc[:-1]
     elif timeframe in {"1H", "30m", "5m", "1m", "4H"}:
         duration = DURATIONS[timeframe]
-        if now < last + duration:
+        session_close = last.normalize() + pd.Timedelta(hours=15, minutes=30)
+        bar_end = min(last + duration, session_close)
+        if now < bar_end:
             return frame.iloc[:-1]
     elif timeframe == "Weekly":
         # Do not treat the current week's candle as complete before Friday close.
