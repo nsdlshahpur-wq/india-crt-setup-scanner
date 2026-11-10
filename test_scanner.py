@@ -63,7 +63,7 @@ def test_scan_symbol_returns_complete_row():
     assert result is not None
     assert result["Symbol"] == "TEST.NS"
     assert result["Bias"] in {"Bullish", "Bearish", "Neutral"}
-    assert result["Setup"] in {"BUY", "SELL", "Wait Entry", "Wait Sweep", "-"}
+    assert result["Setup"] in {"BUY", "SELL", "Wait Retest", "Wait CHoCH", "-"}
 
 
 def test_yfinance_multiindex_ticker_price_order():
