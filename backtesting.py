@@ -16,7 +16,7 @@ from scanner import ScanConfig, _normalise_ohlc, scan_symbol
 
 TRADE_COLUMNS = [
     "Symbol", "Side", "Signal Date", "Entry Date", "Entry", "Stop Loss",
-    "Target 2R", "Exit Date", "Exit", "Exit Reason", "Quantity",
+    "Target Opposite CRT Liquidity", "Exit Date", "Exit", "Exit Reason", "Quantity",
     "Gross P&L", "Costs", "Net P&L", "R Multiple", "Equity After",
 ]
 
@@ -67,17 +67,17 @@ def backtest_symbol(
     lookback_bars: int = 252,
     initial_capital: float = 100_000.0,
     risk_per_trade_pct: float = 1.0,
-    target_r: float = 2.0,
+    target_r: float | None = None,
     max_holding_bars: int = 20,
     round_trip_cost_bps: float = 10.0,
 ) -> dict[str, Any]:
-    """Backtest BUY/SELL signals from scanner.scan_symbol on one daily symbol."""
+    """Backtest confirmed CHoCH + FVG retest signals, with sweep-candle SL and opposite CRT liquidity target."""
     if initial_capital <= 0:
         raise ValueError("Initial capital must be greater than zero.")
     if not 0 < risk_per_trade_pct <= 10:
         raise ValueError("Risk per trade must be > 0 and <= 10 percent.")
-    if target_r <= 0 or max_holding_bars < 1 or round_trip_cost_bps < 0:
-        raise ValueError("Target R, holding bars and transaction costs must be valid.")
+    if (target_r is not None and target_r <= 0) or max_holding_bars < 1 or round_trip_cost_bps < 0:
+        raise ValueError("Optional target R, holding bars and transaction costs must be valid.")
 
     data = _normalise_ohlc(raw_data)
     empty = pd.DataFrame(columns=TRADE_COLUMNS)
@@ -148,7 +148,11 @@ def backtest_symbol(
             i += 1
             continue
 
-        target = entry + direction * risk_per_share * target_r
+        # User strategy target is the opposite CRT liquidity from the scanner context.
+        target = float(signal.get("Target (M1 Monthly H/L)", np.nan))
+        if not _finite(target) or (direction == 1 and target <= entry) or (direction == -1 and target >= entry):
+            i += 1
+            continue
         last_hold_i = min(len(data) - 1, entry_i + max_holding_bars - 1)
         exit_i = last_hold_i
         exit_price = float(data["Close"].iloc[last_hold_i])
@@ -194,7 +198,7 @@ def backtest_symbol(
             "Entry Date": data.index[entry_i].date().isoformat(),
             "Entry": entry,
             "Stop Loss": stop,
-            "Target 2R": target,
+            "Target Opposite CRT Liquidity": target,
             "Exit Date": data.index[exit_i].date().isoformat(),
             "Exit": exit_price,
             "Exit Reason": exit_reason,
@@ -215,5 +219,5 @@ def backtest_symbol(
         "trades": trades,
         "metrics": metrics,
         "equity_curve": pd.DataFrame(equity_rows),
-        "message": "Signals use scanner rules; next-session open entries; conservative same-bar SL-first execution; cost assumption applied.",
+        "message": "3-year daily replay of confirmed CHoCH → FVG retest signals. Entry at next session open after confirmation; stop at the CRT sweep candle extreme; target at opposite CRT liquidity. If SL and target touch in one daily bar, SL is assumed first. Costs applied.",
     }
