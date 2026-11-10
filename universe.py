@@ -483,6 +483,10 @@ def _index_rows(include_all: bool = True) -> list[dict[str, str | bool]]:
             "DataAvailable": bool(provider_symbol),
         })
     for name, provider_symbol, exchange in BSE_INDEX_CATALOG:
+        key = name.upper()
+        if key in seen:
+            continue
+        seen.add(key)
         rows.append({
             "Symbol": provider_symbol,
             "Name": name,
