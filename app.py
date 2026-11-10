@@ -321,8 +321,9 @@ if "scan_results" in st.session_state:
                 "4H": "5",
                 "1H": "1",
             }
+            valid_pairs = mtf_df[mtf_df["CRT Mark"] == "✓ VALID CRT"].copy()
             tv_link_rows = []
-            for pair in mtf_rows:
+            for pair in valid_pairs.to_dict("records"):
                 crt_tf = pair["CRT TF"]
                 entry_tf = pair["Entry TF"]
                 interval = tv_pair_intervals.get(crt_tf, "D")
@@ -333,12 +334,21 @@ if "scan_results" in st.session_state:
                     + interval
                 )
                 tv_link_rows.append(
-                    f'**{crt_tf} CRT → {entry_tf} Entry:** [Open {entry_tf} chart on TradingView]({tv_pair_url})'
+                    f'**✓ {crt_tf} CRT → {entry_tf} Entry:** [Open {entry_tf} chart on TradingView]({tv_pair_url})'
                 )
-            st.markdown("\\n".join(tv_link_rows))
+            if tv_link_rows:
+                st.markdown("\\n".join(tv_link_rows))
+            else:
+                st.info("अभी कोई valid CRT नहीं मिला। Invalid / unconfirmed CRT को mark नहीं किया गया है।")
 
+            def _highlight_only_valid_crt(row):
+                valid = row.get("CRT Mark") == "✓ VALID CRT"
+                style = "background-color: #e8f5e9; color: #1b5e20; font-weight: 600" if valid else ""
+                return [style] * len(row)
+
+            mtf_styled = mtf_df.style.apply(_highlight_only_valid_crt, axis=1)
             st.dataframe(
-                mtf_df,
+                mtf_styled,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
