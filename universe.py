@@ -427,6 +427,10 @@ def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
         "All NSE + BSE stocks + SME", "All India stocks + indices",
         "All NSE + BSE stocks + all indices",
     }
+    want_sme = mode in {
+        "All NSE EQ + SME stocks", "All NSE + BSE stocks + SME",
+        "All India stocks + indices", "All NSE + BSE stocks + all indices",
+    }
     want_bse = mode in {
         "All BSE EQ stocks", "All NSE + BSE stocks", "All India stocks + indices",
         "All NSE + BSE stocks + all indices",
@@ -444,7 +448,7 @@ def make_universe(mode: str, custom_symbols: str = "") -> pd.DataFrame:
                 "Exchange": "NSE", "Category": "Equity EQ", "DataAvailable": True,
             })
 
-    if want_nse:
+    if want_sme:
         try:
             sme_stocks = get_nse_sme_universe()
             for item in sme_stocks.itertuples(index=False):
