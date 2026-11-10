@@ -81,7 +81,7 @@ if result:
     m2.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
     pf = metrics["profit_factor"]
     m3.metric("Profit Factor", "∞" if pf is None else f"{pf:.2f}")
-    m4.metric("Average R", f"{metrics['average_rr']:.2f}R")
+    m4.metric("Average RR", f"{metrics['average_rr']:.2f}R")
     m5.metric("Max Drawdown", f"{metrics['max_drawdown_pct']:.2f}%")
     p1, p2, p3 = st.columns(3)
     p1.metric("Net P&L", f"₹{metrics['net_pnl']:,.2f}")
