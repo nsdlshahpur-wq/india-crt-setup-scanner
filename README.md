@@ -9,18 +9,21 @@ A Streamlit dashboard that ports the supplied Pine Script CRT workflow into Pyth
 
 ## Market universe
 
-The default selection is **All NSE + BSE stocks + all indices**.
+The main scanner keeps the user-facing choice to two options:
 
-- **NSE mainboard stocks:** active securities in the official NSE cash-market `EQ` series, refreshed from NSE's `EQUITY_L.csv` and cached locally for up to 24 hours.
-- **NSE SME stocks:** loaded separately from the official NSE `SME_EQUITY_L.csv` list and cached locally for up to 24 hours.
-- **BSE stocks:** the app attempts to load BSE's official `SCRIP.ZIP` equity master. If that cannot be accessed, it falls back to symbols found in a recent BSE daily equity bhavcopy. That fallback only represents securities appearing in the downloaded bhavcopy; it is not a guarantee of every BSE-listed scrip.
-- **Indian equity indices:** the catalogue includes Nifty broad-market, sectoral, thematic and strategy/factor equity indices, plus BSE broad/market-cap, sectoral, thematic and strategy index families. Official index names are retained even when this data vendor has no symbol mapping.
-- **Data-provider mapping:** official index names are not always Yahoo Finance ticker symbols. Only index tickers explicitly mapped in `YAHOO_INDEX_SYMBOLS` are downloaded. Other official index catalogue entries remain visible in the unavailable list with the reason "no verified Yahoo Finance ticker mapping"; the app never invents ticker strings.
-- **Custom symbols:** accepts NSE tickers such as `RELIANCE`, `HDFCBANK`, `INFY`, BSE-prefixed tickers such as `BSE:500325` only when the Yahoo data provider recognises the resulting ticker, and supported index aliases such as `NIFTY 50` and `NIFTY BANK`.
-
-The Nifty and BSE index providers also publish fixed-income, bond, hybrid, multi-asset, custom and licensed indices. This CRT scanner catalogue is focused on publicly documented equity/market-index families for stock-market scanning; it is not a promise to include every custom, fixed-income or multi-asset index. The full index portfolios are larger than the equity scanner universe.
+- **All Stocks:** NSE main-board cash-market EQ series from the official NSE EQUITY_L.csv master. BSE duplicate listings and SME scrips are intentionally excluded from this fast default universe; this avoids scanning thousands of overlapping or thinly traded instruments through Yahoo Finance.
+- **All Index:** only Indian equity/market indices that have an explicit Yahoo Finance ticker mapping. Unmapped catalogue names are not sent to the downloader.
+- NSE main-board symbols are cached from the official exchange master locally for up to 24 hours. The exchange master itself is not a guarantee that Yahoo Finance has historical OHLC data for every symbol.
+- The universe.py module still contains NSE SME and BSE master readers for future/targeted use, but the fast All Stocks selection does not invoke those large extra lists.
+- On the same Streamlit session, downloaded market data is reused when the universe and history period have not changed. Changing only the CRT strategy settings or display filters does not trigger another full Yahoo download.
 
 ## Data source and limitations
+
+The project uses **Yahoo Finance through yfinance** for daily OHLC history. It does **not** connect to Dhan, place orders, or use broker credentials. Yahoo Finance is an unofficial data source and is not an exchange-grade guaranteed real-time feed. Data may be delayed, missing, adjusted, throttled, or unavailable for some symbols. The displayed LTP is the latest downloaded daily close, not a live tick quote.
+
+Large-universe downloads are batched. For broad scans, the downloader does not issue a separate retry request for every missing ticker; missing rows are reported rather than letting thousands of serial retry calls make the scan appear stuck. Small targeted requests still use individual retries. Reduce the selected universe or use a watchlist when Yahoo Finance rate-limits requests.
+
+
 
 The project uses **Yahoo Finance through `yfinance`** for daily OHLC history. It does **not** connect to Dhan, place orders, or use broker credentials. Yahoo Finance is an unofficial data source and is not an exchange-grade guaranteed real-time feed. Data may be delayed, missing, adjusted, throttled, or unavailable for some symbols. The displayed LTP is the latest downloaded daily close, not a live tick quote.
 
