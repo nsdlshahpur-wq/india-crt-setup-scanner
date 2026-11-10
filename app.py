@@ -20,27 +20,10 @@ with st.sidebar:
     st.header("Scanner Settings")
     universe_mode = st.selectbox(
         "Market universe",
-        [
-            "All NSE + BSE stocks + all indices",
-            "All India stocks + indices",
-            "All NSE + BSE stocks",
-            "All NSE EQ + SME stocks",
-            "All NSE + BSE stocks + SME",
-            "All NSE EQ stocks",
-            "All BSE EQ stocks",
-            "All Indian indices",
-            "Custom symbols",
-        ],
+        ["All Stocks", "All Index"],
         index=0,
-        help="Loads NSE EQ and SME stocks, BSE equity scrips and the Nifty equity-index catalogue. Only verified Yahoo tickers can be downloaded; unmapped indices are listed separately.",
+        help="All Stocks: NSE + BSE equity shares including SME. All Index: available Indian equity and benchmark indices.",
     )
-    custom_symbols = ""
-    if universe_mode == "Custom symbols":
-        custom_symbols = st.text_area(
-            "Symbols (comma separated)",
-            "RELIANCE, HDFCBANK, INFY, TCS, NIFTY 50, NIFTY BANK",
-            height=90,
-        )
     history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=2)
     batch_size = st.slider("Download batch size", min_value=10, max_value=80, value=30, step=10)
     st.divider()
@@ -66,14 +49,18 @@ with col_b:
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _load_universe(mode: str, custom: str) -> pd.DataFrame:
-    return make_universe(mode, custom_symbols=custom)
+def _load_universe(mode: str) -> pd.DataFrame:
+    source_mode = {
+        "All Stocks": "All NSE + BSE stocks + SME",
+        "All Index": "All Indian indices",
+    }[mode]
+    return make_universe(source_mode)
 
 
 if refresh:
     try:
-        with st.spinner("Loading NSE, SME, BSE and index universes..."):
-            universe = _load_universe(universe_mode, custom_symbols)
+        with st.spinner(f"Loading {universe_mode} universe..."):
+            universe = _load_universe(universe_mode)
         if universe.empty:
             st.error("इस चयन के लिए कोई symbol नहीं मिला। NSE/BSE master या symbol spelling जाँचें।")
             st.stop()
