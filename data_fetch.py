@@ -1,7 +1,7 @@
 """Robust daily OHLC downloader for Yahoo Finance via yfinance.
 
-Bare Indian equity symbols default to NSE (.NS); explicit .NS/.BO symbols and
-Yahoo index symbols (^) are preserved. Returned mapping keys stay as requested.
+Large-market scans use batched requests and deliberately avoid thousands of
+individual fallbacks. Small targeted requests retain individual retries.
 """
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from typing import Callable
 
 import pandas as pd
 import yfinance as yf
+
+INDIVIDUAL_RETRY_LIMIT = 100
 
 
 def yahoo_ticker(symbol: str) -> str:
@@ -32,7 +34,6 @@ def yahoo_ticker(symbol: str) -> str:
         return index_aliases[ticker]
     if ticker.startswith("^") or ticker.endswith((".NS", ".BO")):
         return ticker
-    # Yahoo Finance's standard convention for Indian cash equities.
     return f"{ticker}.NS"
 
 
@@ -68,7 +69,7 @@ def _extract_one(downloaded: pd.DataFrame, ticker: str) -> pd.DataFrame:
 
 
 def _download(tickers: list[str], period: str) -> pd.DataFrame:
-    """Use current yfinance download options, preserving multi-ticker column layout."""
+    """Download one bounded ticker batch from Yahoo Finance."""
     return yf.download(
         tickers=tickers if len(tickers) > 1 else tickers[0],
         period=period,
@@ -78,25 +79,31 @@ def _download(tickers: list[str], period: str) -> pd.DataFrame:
         actions=False,
         threads=len(tickers) > 1,
         progress=False,
-        timeout=30,
+        timeout=25,
     )
 
 
 def download_market_data(
     symbols: list[str],
     period: str = "3y",
-    batch_size: int = 40,
+    batch_size: int = 80,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
-    """Download daily OHLC in batches, then retry missing symbols individually.
+    """Download daily OHLC in batches.
 
-    This is an unofficial Yahoo Finance adapter, not an exchange-grade feed.
+    For >100 symbols, a failed/missing ticker is reported rather than triggering
+    a serial request per ticker. This avoids thousands of slow Yahoo requests.
+    Small targeted lists still get an individual retry for missing symbols.
     """
     unique = list(dict.fromkeys(str(s).strip() for s in symbols if str(s).strip()))
     data_map: dict[str, pd.DataFrame] = {}
     errors: dict[str, str] = {}
     total = len(unique)
+    if not total:
+        return data_map, errors
+
     size = max(1, int(batch_size))
+    large_universe = total > INDIVIDUAL_RETRY_LIMIT
 
     for start in range(0, total, size):
         batch = unique[start : start + size]
@@ -104,59 +111,70 @@ def download_market_data(
         yahoo_symbols = list(dict.fromkeys(resolved.values()))
         batch_data = pd.DataFrame()
         batch_error = ""
-        for attempt in range(2):
+
+        # One batch attempt for broad market scans; one retry for small lists.
+        attempts = 1 if large_universe else 2
+        for attempt in range(attempts):
             try:
                 batch_data = _download(yahoo_symbols, period)
                 if batch_data is not None and not batch_data.empty:
                     break
-                batch_error = "Yahoo Finance returned an empty response"
+                batch_error = "Yahoo Finance returned an empty batch response"
             except Exception as exc:
                 batch_error = f"{type(exc).__name__}: {str(exc)[:180]}"
-            if attempt == 0:
-                time.sleep(1)
+            if attempt + 1 < attempts:
+                time.sleep(0.5)
 
         missing: list[str] = []
         for requested in batch:
-            extracted = _extract_one(batch_data, resolved[requested])
+            yahoo_symbol = resolved[requested]
+            extracted = _extract_one(batch_data, yahoo_symbol)
             if extracted.empty and len(yahoo_symbols) == 1:
-                # Single-symbol yfinance responses can sometimes carry a
-                # different column shape; try extracting with requested key.
                 extracted = _extract_one(batch_data, requested)
             if not extracted.empty:
                 data_map[requested] = extracted
             else:
                 missing.append(requested)
 
-        # Batch endpoints sometimes omit one ticker while others succeed.
-        # Retry each missing symbol independently to avoid losing the entire
-        # market scan because of Yahoo's changing MultiIndex response shape.
-        for requested in missing:
-            yahoo_symbol = resolved[requested]
-            last_error = batch_error or "Yahoo Finance returned no OHLC rows"
-            for attempt in range(2):
-                try:
-                    single = _download([yahoo_symbol], period)
-                    extracted = _extract_one(single, yahoo_symbol)
-                    if extracted.empty:
-                        extracted = _extract_one(single, requested)
-                    if not extracted.empty:
-                        data_map[requested] = extracted
-                        last_error = ""
-                        break
-                    last_error = "Yahoo Finance returned no OHLC rows for this symbol"
-                except Exception as exc:
-                    last_error = f"{type(exc).__name__}: {str(exc)[:180]}"
-                if attempt == 0:
-                    time.sleep(0.8)
-            if last_error:
+        if large_universe:
+            # Do not fan out into one or two HTTP requests for every missing
+            # ticker: that is the main cause of long waits on 9k-symbol scans.
+            for requested in missing:
                 errors[requested] = (
-                    f"Yahoo ticker {yahoo_symbol}: {last_error}. "
-                    "Check ticker mapping or try again later."
+                    f"Yahoo ticker {resolved[requested]} was not present in its batch response. "
+                    "Individual retry skipped for the large-universe scan; use a smaller watchlist "
+                    "or run a targeted scan for this symbol."
                 )
+        else:
+            for requested in missing:
+                yahoo_symbol = resolved[requested]
+                last_error = batch_error or "Yahoo Finance returned no OHLC rows"
+                for attempt in range(2):
+                    try:
+                        single = _download([yahoo_symbol], period)
+                        extracted = _extract_one(single, yahoo_symbol)
+                        if extracted.empty:
+                            extracted = _extract_one(single, requested)
+                        if not extracted.empty:
+                            data_map[requested] = extracted
+                            last_error = ""
+                            break
+                        last_error = "Yahoo Finance returned no OHLC rows for this symbol"
+                    except Exception as exc:
+                        last_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+                    if attempt == 0:
+                        time.sleep(0.4)
+                if last_error:
+                    errors[requested] = (
+                        f"Yahoo ticker {yahoo_symbol}: {last_error}. "
+                        "Check ticker mapping or try again later."
+                    )
 
         if progress_callback:
             progress_callback(min(start + len(batch), total), total, batch[-1] if batch else "")
+        # A small inter-batch pause helps avoid hammering Yahoo without adding
+        # a large fixed delay across the 100+ batches of a full-market scan.
         if start + len(batch) < total:
-            time.sleep(0.25)
+            time.sleep(0.08)
 
     return data_map, errors
