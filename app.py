@@ -183,10 +183,14 @@ if "scan_results" in st.session_state:
             "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]]
+        st.caption("BUY / SELL या किसी setup की row पर क्लिक करें—नीचे उसी शेयर का CRT chart और setup levels खुलेंगे।")
         st.dataframe(
             view,
             use_container_width=True,
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="setup_results_table",
             column_config={
                 "LTP": st.column_config.NumberColumn(format="₹%.2f"),
                 "Entry": st.column_config.NumberColumn(format="₹%.2f"),
@@ -206,9 +210,19 @@ if "scan_results" in st.session_state:
         st.subheader("📊 CRT Chart + Setup Levels")
         chart_symbols = sorted(price_map.keys())
         symbol_names = st.session_state.get("scan_symbol_names", {})
+        # Selecting a row in the scan table opens that symbol's chart below.
+        selected_rows = st.session_state.get("setup_results_table", {}).get("selection", {}).get("rows", [])
+        selected_setup_symbol = None
+        if selected_rows and not results.empty:
+            try:
+                selected_setup_symbol = str(view.iloc[int(selected_rows[0])]["Symbol"])
+            except (IndexError, KeyError, ValueError):
+                selected_setup_symbol = None
+        preferred_chart_symbol = selected_setup_symbol if selected_setup_symbol in chart_symbols else chart_symbols[0]
         chart_symbol = st.selectbox(
             "Chart के लिए शेयर / Index चुनें",
             chart_symbols,
+            index=chart_symbols.index(preferred_chart_symbol),
             format_func=lambda symbol: f"{symbol} — {symbol_names.get(symbol, '')}",
             key="crt_chart_symbol",
         )
