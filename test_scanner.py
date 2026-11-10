@@ -107,6 +107,11 @@ def test_official_nifty_equity_index_catalog_is_comprehensive():
     assert "NIFTY INDIA DEFENCE" in names
     assert "NIFTY200 MOMENTUM 30" in names
     assert len(names) == len(set(name.upper() for name in names))
+    all_indices = universe._index_rows()
+    all_names = [row["Name"].upper() for row in all_indices]
+    assert len(all_indices) >= 200
+    assert len(all_names) == len(set(all_names))
+    assert any(row["Name"] == "S&P BSE 500" for row in all_indices)
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY 200"] == "^CNX200"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY MNC"] == "^CNXMNC"
     assert universe.YAHOO_INDEX_SYMBOLS["NIFTY PSE"] == "^CNXPSE"
