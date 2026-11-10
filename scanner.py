@@ -55,8 +55,15 @@ def _three_month_context(data:pd.DataFrame)->dict[str,Any]|None:
     if rows2.empty or rows3.empty:return None
     bull=float(m2.Low)<float(m1.Low) and float(m2.Close)>float(m1.Low)
     bear=float(m2.High)>float(m1.High) and float(m2.Close)<float(m1.High)
+    bull_sweeps=rows2[(rows2.Low<float(m1.Low))&(rows2.Close>float(m1.Low))]
+    bear_sweeps=rows2[(rows2.High>float(m1.High))&(rows2.Close<float(m1.High))]
+    sweep_row=(bull_sweeps.iloc[-1] if bull and not bull_sweeps.empty else
+               bear_sweeps.iloc[-1] if bear and not bear_sweeps.empty else None)
     return dict(m1_high=float(m1.High),m1_low=float(m1.Low),m2_high=float(m2.High),m2_low=float(m2.Low),
         m2_close=float(m2.Close),m2_start=rows2.index[0],m3_start=rows3.index[0],
+        sweep_date=sweep_row.name if sweep_row is not None else None,
+        sweep_high=float(sweep_row.High) if sweep_row is not None else np.nan,
+        sweep_low=float(sweep_row.Low) if sweep_row is not None else np.nan,
         m1_period=str(m1p),m2_period=str(m2p),m3_period=str(m3p),bias=1 if bull else (-1 if bear else 0))
 
 def _monthly_context(data:pd.DataFrame)->dict[str,Any]|None:
