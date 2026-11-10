@@ -11,23 +11,17 @@ A Streamlit dashboard that ports the supplied Pine Script CRT workflow into Pyth
 
 The main scanner keeps the user-facing choice to two options:
 
-- **All Stocks:** NSE main-board cash-market EQ series from the official NSE EQUITY_L.csv master. BSE duplicate listings and SME scrips are intentionally excluded from this fast default universe; this avoids scanning thousands of overlapping or thinly traded instruments through Yahoo Finance.
+- **All Stocks:** NSE main-board cash-market EQ series from the official NSE EQUITY_L.csv master. BSE duplicate listings and SME scrips are intentionally excluded from this fast default universe to avoid thousands of overlapping or thinly traded instruments.
 - **All Index:** only Indian equity/market indices that have an explicit Yahoo Finance ticker mapping. Unmapped catalogue names are not sent to the downloader.
-- NSE main-board symbols are cached from the official exchange master locally for up to 24 hours. The exchange master itself is not a guarantee that Yahoo Finance has historical OHLC data for every symbol.
-- The universe.py module still contains NSE SME and BSE master readers for future/targeted use, but the fast All Stocks selection does not invoke those large extra lists.
-- On the same Streamlit session, downloaded market data is reused when the universe and history period have not changed. Changing only the CRT strategy settings or display filters does not trigger another full Yahoo download.
+- NSE main-board symbols are cached from the official exchange master locally for up to 24 hours. An exchange listing does not guarantee Yahoo Finance has historical OHLC data for every symbol.
+- The universe.py module retains BSE/SME master parsers for possible future use, but the fast All Stocks scan does not invoke those additional lists.
+- Downloaded OHLC data is reused within the current Streamlit session when the universe and history period have not changed. Changing strategy settings or display filters alone does not trigger a full redownload.
 
 ## Data source and limitations
 
 The project uses **Yahoo Finance through yfinance** for daily OHLC history. It does **not** connect to Dhan, place orders, or use broker credentials. Yahoo Finance is an unofficial data source and is not an exchange-grade guaranteed real-time feed. Data may be delayed, missing, adjusted, throttled, or unavailable for some symbols. The displayed LTP is the latest downloaded daily close, not a live tick quote.
 
-Large-universe downloads are batched. For broad scans, the downloader does not issue a separate retry request for every missing ticker; missing rows are reported rather than letting thousands of serial retry calls make the scan appear stuck. Small targeted requests still use individual retries. Reduce the selected universe or use a watchlist when Yahoo Finance rate-limits requests.
-
-
-
-The project uses **Yahoo Finance through `yfinance`** for daily OHLC history. It does **not** connect to Dhan, place orders, or use broker credentials. Yahoo Finance is an unofficial data source and is not an exchange-grade guaranteed real-time feed. Data may be delayed, missing, adjusted, throttled, or unavailable for some symbols. The displayed LTP is the latest downloaded daily close, not a live tick quote.
-
-A symbol being present in an NSE/BSE exchange master does not guarantee Yahoo Finance has historical data for it. Failed and unmapped symbols are listed separately in the dashboard. The full NSE+BSE universe can be several thousand symbols; downloads are batched and a full scan may take substantial time. Yahoo Finance may rate-limit large scans. Increase or decrease the batch size in the sidebar if downloads fail.
+Large-universe downloads are batched. For broad scans, the downloader does not issue a separate retry request for every missing ticker; missing rows are reported rather than letting thousands of serial retry calls make the scan appear stuck. Small targeted requests still use individual retries. Yahoo Finance may rate-limit broad scans.
 
 ## Run on Windows
 
