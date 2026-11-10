@@ -312,31 +312,31 @@ if "scan_results" in st.session_state:
 
         if st.session_state.get("mtf_symbol") == chart_symbol and st.session_state.get("mtf_rows"):
             mtf_df = pd.DataFrame(st.session_state["mtf_rows"])
-            # Make the matching timeframe chart appear immediately alongside its row.
-            if "mtf_chart_tf" not in st.session_state:
-                st.session_state["mtf_chart_tf"] = "Daily"
-            mtf_chart_tf = st.selectbox(
-                "Matrix ke saath chart timeframe",
-                ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"],
-                key="mtf_chart_tf",
-            )
-            mtf_chart_code = {
-                "Monthly": "M", "Weekly": "W", "Daily": "D",
-                "4H": "240", "1H": "60", "30m": "30", "5m": "5", "1m": "1",
-            }[mtf_chart_tf]
-            mtf_tv_url = (
-                "https://www.tradingview.com/widgetembed/?"
-                f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval={mtf_chart_code}"
-                "&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6"
-                "&studies=EMA%4020%2CEMA%4050&theme=light&style=1&timezone=Asia%2FKolkata"
-                "&withdateranges=1&showpopupbutton=1&locale=en"
-            )
-            components.html(
-                f'<iframe src="{mtf_tv_url}" style="width:100%;height:520px;border:0;" '
-                'allowfullscreen loading="lazy"></iframe>',
-                height=530,
-                scrolling=False,
-            )
+            # Do not embed a TradingView iframe inside the app.
+            # Offer direct TradingView links per CRT -> entry timeframe instead.
+            tv_pair_intervals = {
+                "Monthly": "D",
+                "Weekly": "240",
+                "Daily": "30",
+                "4H": "5",
+                "1H": "1",
+            }
+            tv_link_rows = []
+            for pair in mtf_rows:
+                crt_tf = pair["CRT TF"]
+                entry_tf = pair["Entry TF"]
+                interval = tv_pair_intervals.get(crt_tf, "D")
+                tv_pair_url = (
+                    "https://www.tradingview.com/chart/?symbol="
+                    + tv_chart_symbol.replace(" ", "%20")
+                    + "&interval="
+                    + interval
+                )
+                tv_link_rows.append(
+                    f'**{crt_tf} CRT → {entry_tf} Entry:** [Open {entry_tf} chart on TradingView]({tv_pair_url})'
+                )
+            st.markdown("\\n".join(tv_link_rows))
+
             st.dataframe(
                 mtf_df,
                 use_container_width=True,
@@ -373,38 +373,7 @@ if "scan_results" in st.session_state:
         else:
             st.info("पहले ऊपर का **Analyze all 5 timeframe pairs** बटन दबाएँ। Intraday analysis केवल चुने हुए symbol पर चलेगा।")
 
-        tv_interval_label = st.selectbox(
-            "TradingView Chart Timeframe",
-            ["Monthly", "Weekly", "Daily", "4H", "1H", "30m", "5m", "1m"],
-            index=2,
-            key="tv_chart_interval",
-        )
-        tv_interval_code = {
-            "Monthly": "M",
-            "Weekly": "W",
-            "Daily": "D",
-            "4H": "240",
-            "1H": "60",
-            "30m": "30",
-            "5m": "5",
-            "1m": "1",
-        }[tv_interval_label]
-        tv_embed_url = (
-            "https://www.tradingview.com/widgetembed/?"
-            f"symbol={tv_chart_symbol.replace(':', '%3A').replace(' ', '%20')}&interval={tv_interval_code}"
-            "&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6"
-            "&studies=EMA%4020%2CEMA%4050&theme=light&style=1&timezone=Asia%2FKolkata"
-            "&withdateranges=1&showpopupbutton=1&locale=en"
-        )
-        st.subheader("📉 TradingView Chart")
-        components.html(
-            f'<iframe src="{tv_embed_url}" style="width:100%;height:620px;border:0;" '
-            'allowfullscreen loading="lazy"></iframe>',
-            height=630,
-            scrolling=False,
-        )
-        st.caption("TradingView chart is embedded above. Scanner-derived CRT levels remain available in the scanner chart below.")
-
+        # Keep the original in-app Plotly CRT/indicator chart; TradingView opens directly via links above.
         chart_data = price_map.get(chart_symbol)
         if chart_data is not None and not chart_data.empty:
             chart_data = chart_data.copy()
