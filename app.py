@@ -30,7 +30,6 @@ with st.sidebar:
     displacement_atr = st.number_input("Displacement × ATR", min_value=0.1, max_value=5.0, value=1.2, step=0.1)
     pivot_left = st.number_input("Pivot Left", min_value=1, max_value=15, value=3)
     pivot_right = st.number_input("Pivot Right", min_value=1, max_value=15, value=3)
-    sweep_lookback = st.number_input("Sweep Lookback (daily candles)", min_value=3, max_value=40, value=10)
     entry_valid_days = st.number_input("Entry valid (daily candles)", min_value=1, max_value=10, value=3)
     only_setup = st.checkbox("Show only setup-ready symbols", value=True)
     st.divider()
@@ -82,7 +81,6 @@ if refresh:
             displacement_atr=float(displacement_atr),
             pivot_left=int(pivot_left),
             pivot_right=int(pivot_right),
-            sweep_lookback=int(sweep_lookback),
             entry_valid_days=int(entry_valid_days),
         )
 
