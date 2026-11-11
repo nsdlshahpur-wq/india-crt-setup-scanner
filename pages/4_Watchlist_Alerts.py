@@ -52,9 +52,10 @@ if not watch.empty:
             price_map, errors = download_market_data(symbols, period="1y", batch_size=10)
         output = []
         new_alerts = []
+        progress = st.progress(0.0, text="Checking watchlist symbols...")
         for idx, ticker in enumerate(symbols, start=1):
             prices = price_map.get(ticker, pd.DataFrame())
-            label = watch.loc[watch["Symbol"] == ticker, "Label"].iloc[0] if "Label" in watch.columns and (watch["Symbol"] == ticker).any() else ticker
+            label = watch.loc[watch["Symbol"] == ticker, "Name"].iloc[0] if "Name" in watch.columns and (watch["Symbol"] == ticker).any() else ticker
             if prices.empty:
                 output.append({"Symbol": ticker, "Name": label, "Setup": "NO DATA", "Data Note": errors.get(ticker, "No Daily OHLC returned")})
                 continue
@@ -76,9 +77,10 @@ if not watch.empty:
             except Exception as exc:
                 output.append({"Symbol": ticker, "Name": label, "Setup": "ERROR", "Data Note": f"{type(exc).__name__}: {exc}"})
 
-            progress_placeholder = st.session_state.get("_watch_progress")
-            if progress_placeholder is not None:
-                progress_placeholder.progress(idx / max(len(symbols), 1))
+            progress.progress(
+                idx / max(len(symbols), 1),
+                text=f"Checked {idx}/{len(symbols)} · {ticker}",
+            )
 
         st.session_state["watch_scan_results"] = pd.DataFrame(output)
         st.session_state["watch_scan_new_alerts"] = new_alerts
