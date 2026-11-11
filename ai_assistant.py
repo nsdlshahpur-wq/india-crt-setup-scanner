@@ -182,49 +182,139 @@ def generate_market_answer(
     raise ValueError("Unsupported AI provider. Choose OpenAI, Gemini or Groq.")
 
 
+def _candidate_crt_errors(row: dict) -> list[str]:
+    """Deterministic safety gate: reject incomplete or internally inconsistent CRT rows."""
+    errors: list[str] = []
+    required_text = [
+        "Symbol", "Setup", "Entry Status", "Target Status", "Monthly Status",
+        "Sweep Date", "CHoCH Date", "Retest Date", "Entry Date", "Entry Zone Type",
+    ]
+    for field in required_text:
+        value = row.get(field)
+        if value is None or str(value).strip() in {"", "nan", "None"}:
+            errors.append(f"{field} missing")
+
+    allowed_zones = {"FVG", "IFVG", "OB", "BOB"}
+    zone_types = {item.strip() for item in str(row.get("Entry Zone Type", "")).split("+") if item.strip()}
+    if not zone_types or not zone_types.issubset(allowed_zones):
+        errors.append("Entry Zone Type must be FVG, IFVG, OB or BOB")
+
+    numeric_fields = [
+        "Entry", "SL", "Target (M1 Monthly H/L)", "M1 High", "M1 Low",
+        "M2 Close", "Sweep Candle High", "Sweep Candle Low", "Zone Low", "Zone High",
+    ]
+    numbers: dict[str, float] = {}
+    for field in numeric_fields:
+        try:
+            value = float(row.get(field))
+            if value != value or value in {float("inf"), float("-inf")}:
+                raise ValueError
+            numbers[field] = value
+        except (TypeError, ValueError):
+            errors.append(f"{field} missing or not numeric")
+
+    if int(row.get("Stage", 0) or 0) != 3:
+        errors.append("Stage must be 3 (active entry)")
+    if row.get("Setup") not in {"BUY", "SELL"}:
+        errors.append("Setup must be BUY or SELL")
+    if row.get("Entry Status") != "TRIGGERED":
+        errors.append("Entry is not triggered")
+    if row.get("Target Status") != "TARGET PENDING":
+        errors.append("Target is not pending")
+    if row.get("Setup") == "BUY" and row.get("Monthly Status") != "VALID_BULLISH_SWEEP":
+        errors.append("Monthly status is not a valid bullish sweep")
+    if row.get("Setup") == "SELL" and row.get("Monthly Status") != "VALID_BEARISH_SWEEP":
+        errors.append("Monthly status is not a valid bearish sweep")
+
+    if len(numbers) == len(numeric_fields):
+        entry, stop, target = numbers["Entry"], numbers["SL"], numbers["Target (M1 Monthly H/L)"]
+        m1_high, m1_low, m2_close = numbers["M1 High"], numbers["M1 Low"], numbers["M2 Close"]
+        sweep_high, sweep_low = numbers["Sweep Candle High"], numbers["Sweep Candle Low"]
+        zone_low, zone_high = numbers["Zone Low"], numbers["Zone High"]
+        if not m1_low < m2_close < m1_high:
+            errors.append("M2 close is not inside the full M1 range")
+        if not zone_low < zone_high:
+            errors.append("Entry zone bounds are invalid")
+        if row.get("Setup") == "BUY":
+            if not stop < entry < target:
+                errors.append("BUY levels must satisfy SL < Entry < M1 target")
+            if abs(stop - sweep_low) > max(0.01, abs(sweep_low) * 1e-6):
+                errors.append("BUY SL does not match the actual sweep candle low")
+            if abs(target - m1_high) > max(0.01, abs(m1_high) * 1e-6):
+                errors.append("BUY target does not match M1 high liquidity")
+            if entry <= zone_high:
+                errors.append("BUY confirmation close is not above the retested zone")
+        elif row.get("Setup") == "SELL":
+            if not target < entry < stop:
+                errors.append("SELL levels must satisfy M1 target < Entry < SL")
+            if abs(stop - sweep_high) > max(0.01, abs(sweep_high) * 1e-6):
+                errors.append("SELL SL does not match the actual sweep candle high")
+            if abs(target - m1_low) > max(0.01, abs(m1_low) * 1e-6):
+                errors.append("SELL target does not match M1 low liquidity")
+            if entry >= zone_low:
+                errors.append("SELL confirmation close is not below the retested zone")
+
+    return list(dict.fromkeys(errors))
+
+
 def filter_strong_crt_setups(
     provider: str,
     api_key: str,
     candidates: list[dict],
     model: str = "",
 ) -> dict:
-    """Ask the LLM to validate only the user's explicit CRT checklist.
-
-    Stage 3 is a hard prerequisite produced by the scanner. The LLM may only
-    keep or reject supplied symbols; it cannot invent symbols or add indicators.
-    """
+    """AI review is restricted to deterministic active CRT entries from the scanner."""
     if not candidates:
-        return {"approved": [], "rejected": [], "summary": "No Stage 3 CRT candidates were supplied."}
+        return {"approved": [], "rejected": [], "summary": "No active CRT entries were supplied."}
 
-    allowed = {str(row.get("Symbol", "")) for row in candidates}
+    eligible: list[dict] = []
+    rejected: list[dict] = []
+    for candidate in candidates:
+        errors = _candidate_crt_errors(candidate)
+        if errors:
+            rejected.append({
+                "Symbol": str(candidate.get("Symbol", "Unknown")),
+                "Reason": "; ".join(errors),
+            })
+        else:
+            eligible.append(candidate)
+
+    if not eligible:
+        return {
+            "approved": [],
+            "rejected": rejected,
+            "summary": "No candidate passed the deterministic Monthly-Daily CRT evidence checks.",
+        }
+
+    allowed = {str(row["Symbol"]): row for row in eligible}
     checklist = (
-        "You are a strict Candle Range Theory (CRT) validation assistant. "
-        "Use ONLY this checklist and supplied scanner evidence: "
-        "(1) M1 previous monthly range, (2) M2 liquidity sweep beyond M1 high/low "
-        "and close back inside the M1 range, (3) M3 daily CHoCH in the reclaim direction, "
-        "(4) same-direction FVG formed after CHoCH, (5) retest of that FVG with a confirming "
-        "close, (6) stop at the actual sweep candle low for bullish or high for bearish, "
-        "(7) target at opposite M1 monthly liquidity. "
-        "Do not use RSI, MACD, EMA, news, fundamentals, volume, IFVG, order blocks, "
-        "or any other strategy/filter. Do not invent missing evidence. "
-        "Only approve a row if Setup is BUY/SELL, Stage is 3, all required fields "
-        "are present and the direction/levels are internally consistent. "
-        "If evidence is missing or contradictory, reject and name the missing CRT field. "
-        "Return ONLY valid JSON with keys approved (array of objects with Symbol, "
-        "Direction, Reason), rejected (array of objects with Symbol, Reason), "
-        "summary (string). Use only symbols in the supplied rows."
+        "You are a conservative reviewer of a Monthly (1M) to Daily (1D) CRT scanner. "
+        "Review ONLY the supplied active scanner rows. M1 is the previous completed monthly range. "
+        "M2 must sweep exactly one side of M1 and close back inside the FULL M1 high-low range. "
+        "If both sides were swept, reject. M3 Daily structure must show CHoCH in the sweep-reclaim direction. "
+        "After CHoCH, entry must have a retest in ANY ONE of these four permitted zones: "
+        "FVG (directional three-candle gap), IFVG (opposite gap closed through and then flipped), "
+        "OB (last counter-direction candle before the CHoCH break), or BOB (a broken opposing block "
+        "reclaimed through its far edge). A retest must be followed within the scanner confirmation window "
+        "by a confirming Daily close in the trade direction. Stop is the actual sweep candle low for BUY "
+        "or high for SELL. Target is opposite M1 monthly liquidity. The candidate must have Stage 3, "
+        "Entry Status TRIGGERED and Target Status TARGET PENDING. "
+        "Do not add RSI, MACD, EMA, volume, news, fundamentals, or extra filters. "
+        "Do not invent data or symbols. You may only approve or reject supplied symbols. "
+        "Return ONLY JSON with approved (array: Symbol, Reason), rejected (array: Symbol, Reason), "
+        "and summary (string)."
     )
-    candidate_context = checklist + "\n\nCANDIDATES JSON:\n" + json.dumps(candidates, ensure_ascii=False, default=str)
     raw = generate_market_answer(
         provider,
         api_key,
-        "Validate every supplied candidate against the exact CRT checklist. Return only the requested JSON. Do not add rules.",
-        market_context=candidate_context,
+        "Review each supplied row against the exact Monthly-Daily CRT checklist. Return only the requested JSON.",
+        market_context=checklist + "\n\nACTIVE CRT CANDIDATES:\n" + json.dumps(eligible, ensure_ascii=False, default=str),
         model=model,
     )
-    text = raw.strip()
-    text = re.sub(r"^`{3}(?:json)?\s*|\s*`{3}$", "", text, flags=re.I)
-    match = re.search(r"\{.*\}", text, flags=re.S)
+    raw_text = raw.strip()
+    fence = chr(96) * 3
+    raw_text = re.sub(r"^" + fence + r"(?:json)?\s*|\s*" + fence + r"$", "", raw_text, flags=re.I)
+    match = re.search(r"\{.*\}", raw_text, flags=re.S)
     if not match:
         raise AIProviderError("AI did not return the required JSON result. Please retry.")
     try:
@@ -233,18 +323,34 @@ def filter_strong_crt_setups(
         raise AIProviderError("AI returned invalid JSON for the CRT filter. Please retry.") from None
 
     approved = []
-    rejected = []
-    for row in parsed.get("approved", []):
-        symbol = str(row.get("Symbol", ""))
-        source = next((item for item in candidates if str(item.get("Symbol", "")) == symbol), None)
-        if source and symbol in allowed and int(source.get("Stage", 0)) == 3 and source.get("Setup") in {"BUY", "SELL"}:
-            approved.append({"Symbol": symbol, "Direction": source["Setup"], "Reason": str(row.get("Reason", "CRT checklist passed"))})
-    for row in parsed.get("rejected", []):
-        symbol = str(row.get("Symbol", ""))
+    ai_rejected = []
+    for item in parsed.get("approved", []):
+        symbol = str(item.get("Symbol", ""))
         if symbol in allowed:
-            rejected.append({"Symbol": symbol, "Reason": str(row.get("Reason", "CRT evidence incomplete"))})
+            source = allowed[symbol]
+            approved.append({
+                "Symbol": symbol,
+                "Direction": source["Setup"],
+                "Entry Zone Type": source["Entry Zone Type"],
+                "Entry": source["Entry"],
+                "SL": source["SL"],
+                "Target": source["Target (M1 Monthly H/L)"],
+                "Reason": str(item.get("Reason", "Scanner evidence passed; AI reviewed.")),
+            })
+    for item in parsed.get("rejected", []):
+        symbol = str(item.get("Symbol", ""))
+        if symbol in allowed:
+            ai_rejected.append({
+                "Symbol": symbol,
+                "Reason": str(item.get("Reason", "AI marked the supplied CRT evidence for manual review.")),
+            })
+
+    covered = {item["Symbol"] for item in approved + ai_rejected}
+    for symbol in sorted(set(allowed) - covered):
+        ai_rejected.append({"Symbol": symbol, "Reason": "AI did not return a decision; manual review required."})
+
     return {
         "approved": approved,
-        "rejected": rejected,
-        "summary": str(parsed.get("summary", "AI CRT validation completed.")),
+        "rejected": rejected + ai_rejected,
+        "summary": str(parsed.get("summary", "Monthly-Daily CRT review completed.")),
     }
