@@ -189,6 +189,7 @@ def _collect_entry_zones(
         float(data.Close.iloc[ch]) > float(data.Open.iloc[ch])
         if direction == 1 else float(data.Close.iloc[ch]) < float(data.Open.iloc[ch])
     )
+    latest_ob_index = None
     if choch_is_directional:
         ob_start = max(start, ch - max(1, int(config.ob_lookback_days)))
         for j in range(ch - 1, ob_start - 1, -1):
@@ -198,6 +199,7 @@ def _collect_entry_zones(
             )
             if opposite:
                 zones.append(_zone("OB", data.Low.iloc[j], data.High.iloc[j], j, ch))
+                latest_ob_index = j
                 break
 
     # BOB: an older counter-direction block (not the nearest OB candle) is
@@ -205,16 +207,6 @@ def _collect_entry_zones(
     # broken block is treated as a breaker only after that completed close;
     # its retest must happen on a later Daily candle.
     bob_start = max(start, ch - max(1, int(config.bob_lookback_days)))
-    latest_ob_index = next(
-        (
-            j for j in range(ch - 1, max(start, ch - max(1, int(config.ob_lookback_days))) - 1, -1)
-            if (
-                float(data.Close.iloc[j]) < float(data.Open.iloc[j])
-                if direction == 1 else float(data.Close.iloc[j]) > float(data.Open.iloc[j])
-            )
-        ),
-        None,
-    )
     for j in range(bob_start, ch):
         if j == latest_ob_index:
             continue
