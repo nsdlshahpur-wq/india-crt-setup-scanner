@@ -13,7 +13,7 @@ from universe import make_universe
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
-st.caption("3-Month CRT: M1 range → M2 sweep/reclaim → M3 Daily CHoCH → FVG + IFVG + OB retest")
+st.caption("3-Month CRT: M1 liquidity range → M2 sweep/reclaim → M3 Daily CHoCH → directional FVG retest")
 
 with st.sidebar:
     st.header("Scanner Settings")
@@ -31,7 +31,7 @@ with st.sidebar:
     pivot_left = st.number_input("Pivot Left", min_value=1, max_value=15, value=3)
     pivot_right = st.number_input("Pivot Right", min_value=1, max_value=15, value=3)
     entry_valid_days = st.number_input("Entry valid (daily candles)", min_value=1, max_value=10, value=3)
-    only_setup = st.checkbox("Show only active CRT candidates", value=True)
+    only_setup = st.checkbox("Show only confirmed CRT entries", value=True)
     st.divider()
     st.caption(
         "Data source: Yahoo Finance via yfinance. This is an unofficial source; prices can be delayed, "
@@ -128,7 +128,8 @@ if refresh:
             result_df["_order"] = result_df["Stage"].map(stage_order).fillna(4)
             result_df = result_df.sort_values(["_order", "Symbol"]).drop(columns="_order")
             if only_setup:
-                result_df = result_df[result_df["Stage"] >= 1]
+                # Strong CRT means the complete rule sequence is confirmed (Stage 3).
+                result_df = result_df[result_df["Stage"] == 3]
 
         st.session_state["scan_results"] = result_df
         st.session_state["scan_price_map"] = price_map
@@ -160,7 +161,7 @@ if "scan_results" in st.session_state:
     m2.metric("Data received", f"{data_count:,}")
     m3.metric("BUY setups", f"{buy_count:,}")
     m4.metric("SELL setups", f"{sell_count:,}")
-    m5.metric("Wait Sweep / Entry", f"{wait_sweep_count:,} / {sweep_count:,}")
+    m5.metric("Confirmed CRT", f"{buy_count + sell_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
 
     if results.empty:
@@ -169,7 +170,7 @@ if "scan_results" in st.session_state:
         stage_filter = st.multiselect(
             "Show stages",
             ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "-"],
-            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH"],
+            default=["BUY", "SELL"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         preferred = [
