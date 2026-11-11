@@ -18,7 +18,8 @@ with st.sidebar:
     model = st.text_input("Model ID", model_default)
     st.markdown(
         "**API key setup**\n\n"
-        "OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)\\n\\n"\n        "Gemini: [Google AI Studio](https://aistudio.google.com/app/apikey)\n\n"
+        "OpenAI: [API keys](https://platform.openai.com/api-keys)\n\n"
+        "Gemini: [Google AI Studio](https://aistudio.google.com/app/apikey)\n\n"
         "Groq: [Groq Console](https://console.groq.com/keys)"
     )
 
