@@ -64,9 +64,9 @@ def test_pivot_confirmed_before_sweep_is_not_used_for_m3_choch():
             [108, 109, 101, 105],
             [100, 103, 98, 99],   # sweep candle
             [99, 102, 97, 100],
-            [100, 111, 99, 108],
-            [108, 110, 100, 107],
-            [107, 109, 101, 108],
+            [100, 103, 98, 101],
+            [101, 104, 99, 102],
+            [102, 105, 100, 103],
         ],
         index=dates,
         columns=["Open", "High", "Low", "Close"],
