@@ -63,7 +63,7 @@ def test_ai_guard_rejects_sell_candidate_with_wrong_liquidity_target():
         "Sweep Candle Low": 95.0,
         "SL": 122.0,
         "Entry": 90.0,
-        "Target (M1 Monthly H/L)": 80.0,
+        "Target (M1 Monthly H/L)": 81.0,
         "Entry Zone Type": "IFVG",
         "Zone Low": 92.0,
         "Zone High": 96.0,
