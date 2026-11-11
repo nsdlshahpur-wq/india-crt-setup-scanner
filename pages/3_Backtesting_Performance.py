@@ -10,7 +10,7 @@ from scanner import ScanConfig
 
 st.set_page_config(page_title="CRT Backtesting & Performance", page_icon="📊", layout="wide")
 st.title("📊 Backtesting & Performance")
-st.caption("3-year historical replay: monthly CRT sweep/reclaim → Daily CHoCH → FVG retest; sweep-candle SL; opposite CRT liquidity target.")
+st.caption("3-year historical replay: Monthly CRT sweep/reclaim → Daily CHoCH → retest in FVG / IFVG / OB / BOB; sweep-candle SL; opposite M1 liquidity target.")
 
 scan_map = st.session_state.get("scan_price_map", {})
 scan_names = st.session_state.get("scan_symbol_names", {})
