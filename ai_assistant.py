@@ -5,7 +5,66 @@ credentials, account balances, orders or holdings are included automatically.
 """
 from __future__ import annotations
 
+import json
+import re
+
 import requests
+
+
+class AIProviderError(RuntimeError):
+    """Safe, actionable provider error with secrets removed."""
+
+
+def _post_provider_json(
+    provider: str,
+    url: str,
+    api_key: str,
+    *,
+    headers: dict | None = None,
+    params: dict | None = None,
+    payload: dict,
+    timeout: int,
+) -> dict:
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            params=params,
+            json=payload,
+            timeout=timeout,
+        )
+    except requests.Timeout:
+        raise AIProviderError(
+            f"{provider} request timed out after {timeout} seconds. Please retry."
+        ) from None
+    except requests.RequestException:
+        raise AIProviderError(
+            f"{provider} could not be reached. Check the app network/deployment and retry."
+        ) from None
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+
+    if not response.ok:
+        error = data.get("error", {}) if isinstance(data, dict) else {}
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("status") or "")
+            code = str(error.get("code") or error.get("type") or "")
+        else:
+            message, code = str(error), ""
+        message = message.replace(api_key, "[hidden API key]").strip()
+        code = code.replace(api_key, "[hidden API key]").strip()
+        detail = f" — {message[:450]}" if message else ""
+        code_part = f" ({code[:100]})" if code else ""
+        raise AIProviderError(
+            f"{provider} API returned HTTP {response.status_code}{code_part}{detail}"
+        )
+
+    if not isinstance(data, dict):
+        raise AIProviderError(f"{provider} returned an unexpected response format.")
+    return data
 
 
 def generate_market_answer(
@@ -32,32 +91,39 @@ def generate_market_answer(
     if provider == "Gemini":
         model_id = model.strip() or "gemini-3.5-flash-lite"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
-        response = requests.post(
+        data = _post_provider_json(
+            "Gemini",
             url,
+            api_key,
             params={"key": api_key},
-            json={
+            payload={
                 "contents": [{"parts": [{"text": full_prompt}]}],
                 "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1800},
             },
             timeout=60,
         )
-        response.raise_for_status()
-        data = response.json()
         candidates = data.get("candidates", [])
         if not candidates:
-            raise RuntimeError("Gemini returned no answer. Check model access and free-tier quota.")
+            raise AIProviderError(
+                "Gemini returned no answer. Check model access, API key restrictions and quota."
+            )
         parts = candidates[0].get("content", {}).get("parts", [])
         answer = "\n".join(part.get("text", "") for part in parts if part.get("text"))
         if not answer:
-            raise RuntimeError("Gemini response did not contain text.")
+            finish_reason = candidates[0].get("finishReason", "unknown")
+            raise AIProviderError(
+                f"Gemini returned no text (finish reason: {finish_reason}). Check model access and safety response."
+            )
         return answer
 
     if provider == "Groq":
         model_id = model.strip() or "openai/gpt-oss-20b"
-        response = requests.post(
+        data = _post_provider_json(
+            "Groq",
             "https://api.groq.com/openai/v1/chat/completions",
+            api_key,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
+            payload={
                 "model": model_id,
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -68,19 +134,22 @@ def generate_market_answer(
             },
             timeout=60,
         )
-        response.raise_for_status()
-        data = response.json()
         choices = data.get("choices", [])
         if not choices:
-            raise RuntimeError("Groq returned no answer. Check model access and free-tier quota.")
-        return str(choices[0].get("message", {}).get("content", "")).strip()
+            raise AIProviderError("Groq returned no answer. Check model access and quota.")
+        answer = str(choices[0].get("message", {}).get("content", "")).strip()
+        if not answer:
+            raise AIProviderError("Groq response did not contain text.")
+        return answer
 
     if provider == "OpenAI":
         model_id = model.strip() or "gpt-5.5"
-        response = requests.post(
+        data = _post_provider_json(
+            "OpenAI",
             "https://api.openai.com/v1/responses",
+            api_key,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
+            payload={
                 "model": model_id,
                 "instructions": system_prompt,
                 "input": full_prompt,
@@ -88,17 +157,26 @@ def generate_market_answer(
             },
             timeout=90,
         )
-        response.raise_for_status()
-        data = response.json()
         answer = str(data.get("output_text", "")).strip()
         if not answer:
             parts = []
             for item in data.get("output", []):
                 if item.get("type") == "message":
-                    parts.extend(part.get("text", "") for part in item.get("content", []) if part.get("type") == "output_text")
-            answer = "\\n".join(parts).strip()
+                    parts.extend(
+                        part.get("text", "")
+                        for part in item.get("content", [])
+                        if part.get("type") == "output_text"
+                    )
+            answer = "\n".join(parts).strip()
         if not answer:
-            raise RuntimeError("OpenAI returned no text. Check model access and API project billing.")
+            status = data.get("status", "unknown")
+            incomplete = data.get("incomplete_details") or {}
+            reason = incomplete.get("reason", "")
+            detail = f"; reason: {reason}" if reason else ""
+            raise AIProviderError(
+                f"OpenAI returned no text (response status: {status}{detail}). "
+                "Check model access and API project billing."
+            )
         return answer
 
     raise ValueError("Unsupported AI provider. Choose OpenAI, Gemini or Groq.")
@@ -115,9 +193,6 @@ def filter_strong_crt_setups(
     Stage 3 is a hard prerequisite produced by the scanner. The LLM may only
     keep or reject supplied symbols; it cannot invent symbols or add indicators.
     """
-    import json
-    import re
-
     if not candidates:
         return {"approved": [], "rejected": [], "summary": "No Stage 3 CRT candidates were supplied."}
 
@@ -139,7 +214,7 @@ def filter_strong_crt_setups(
         "Direction, Reason), rejected (array of objects with Symbol, Reason), "
         "summary (string). Use only symbols in the supplied rows."
     )
-    candidate_context = checklist + "\\n\\nCANDIDATES JSON:\\n" + json.dumps(candidates, ensure_ascii=False, default=str)
+    candidate_context = checklist + "\n\nCANDIDATES JSON:\n" + json.dumps(candidates, ensure_ascii=False, default=str)
     raw = generate_market_answer(
         provider,
         api_key,
@@ -148,11 +223,15 @@ def filter_strong_crt_setups(
         model=model,
     )
     text = raw.strip()
-    text = re.sub(r"^\x60{3}(?:json)?\s*|\s*\x60{3}$", "", text, flags=re.I)
+    text = re.sub(r"^`{3}(?:json)?\s*|\s*`{3}$", "", text, flags=re.I)
     match = re.search(r"\{.*\}", text, flags=re.S)
     if not match:
-        raise ValueError("AI did not return the required JSON result. Please retry.")
-    parsed = json.loads(match.group(0))
+        raise AIProviderError("AI did not return the required JSON result. Please retry.")
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        raise AIProviderError("AI returned invalid JSON for the CRT filter. Please retry.") from None
+
     approved = []
     rejected = []
     for row in parsed.get("approved", []):
