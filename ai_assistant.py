@@ -113,12 +113,12 @@ def filter_strong_crt_setups(
         "Direction, Reason), rejected (array of objects with Symbol, Reason), "
         "summary (string). Use only symbols in the supplied rows."
     )
+    candidate_context = checklist + "\\n\\nCANDIDATES JSON:\\n" + json.dumps(candidates, ensure_ascii=False, default=str)
     raw = generate_market_answer(
         provider,
         api_key,
-        "Validate these scanner candidates against the exact CRT checklist. "
-        "No new rules.\n\nCANDIDATES:\n" + json.dumps(candidates, ensure_ascii=False, default=str),
-        market_context=checklist,
+        "Validate every supplied candidate against the exact CRT checklist. Return only the requested JSON. Do not add rules.",
+        market_context=candidate_context,
         model=model,
     )
     text = raw.strip()
