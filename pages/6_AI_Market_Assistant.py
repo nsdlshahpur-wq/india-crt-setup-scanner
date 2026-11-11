@@ -25,17 +25,33 @@ with st.sidebar:
 
 try:
     secrets_ai = st.secrets.get("ai", {})
-    api_key = str(secrets_ai.get("openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key"), ""))
+    secret_name = "openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key")
+    api_key = str(secrets_ai.get(secret_name, ""))
 except Exception:
+    secret_name = "openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key")
     api_key = ""
 
 if api_key:
     st.success(f"{provider} API key found in Streamlit secrets.")
 else:
     st.warning(
-        f"{provider} API key missing. Add it to Streamlit → App settings → Secrets. "
-        "Do not paste API keys into chat, source code or GitHub."
+        f"{provider} API key missing. Streamlit → App settings → Secrets में यह जोड़ें:"
     )
+    st.code(f'[ai]\n{secret_name} = "YOUR_API_KEY"', language="toml")
+    st.caption("API key को chat या GitHub में paste न करें।")
+
+with st.sidebar:
+    if st.button("🔌 Test AI connection", key="test_ai_connection", disabled=not bool(api_key.strip())):
+        try:
+            with st.spinner(f"Testing {provider} connection..."):
+                test_answer = generate_market_answer(
+                    provider, api_key, "Reply with exactly: AI_CONNECTION_OK", model=model
+                )
+            st.success("AI connection successful.")
+            st.caption(test_answer[:180])
+        except Exception as exc:
+            detail = str(exc).replace(api_key, "[hidden API key]")[:500]
+            st.error(f"{type(exc).__name__}: {detail}")
 
 scan_map = st.session_state.get("scan_price_map", {})
 scan_names = st.session_state.get("scan_symbol_names", {})
@@ -53,7 +69,7 @@ question = st.text_area(
     "Is symbol ka CRT setup, trend, liquidity sweep, entry confirmation aur risk levels explain kijiye. Missing data aur invalidation bhi batayein.",
     height=110,
 )
-include_mtf = st.checkbox("Include latest Multi-Timeframe CRT matrix from this session", value=True)
+include_mtf = st.checkbox("Include latest Monthly-Daily CRT matrix from this session", value=True)
 
 if st.button("✨ Analyse with AI", type="primary", disabled=not bool(api_key.strip())):
     try:
@@ -75,7 +91,7 @@ if st.button("✨ Analyse with AI", type="primary", disabled=not bool(api_key.st
 
         matrix = st.session_state.get("mtf_rows")
         if include_mtf and st.session_state.get("mtf_symbol") == symbol and matrix:
-            context_parts.append("MULTI-TIMEFRAME CRT MATRIX:\n" + json.dumps(matrix, ensure_ascii=False, default=str))
+            context_parts.append("MONTHLY-DAILY CRT MATRIX:\n" + json.dumps(matrix, ensure_ascii=False, default=str))
 
         bars = price_frame.copy().tail(20)
         if isinstance(bars.columns, pd.MultiIndex):
@@ -93,12 +109,8 @@ if st.button("✨ Analyse with AI", type="primary", disabled=not bool(api_key.st
         history.append({"Question": question, "Answer": answer, "Symbol": symbol, "Provider": provider})
         st.session_state["ai_market_history"] = history[-10:]
     except Exception as exc:
-        # Do not echo provider URLs or query strings because Gemini API keys
-        # are passed in the request URL by the provider contract.
-        st.error(
-            f"AI analysis failed ({type(exc).__name__}). Check the API key, selected model, "
-            "provider quota and network connection. Secret values are not shown."
-        )
+        detail = str(exc).replace(api_key, "[hidden API key]")[:500]
+        st.error(f"AI analysis failed ({type(exc).__name__}): {detail}")
 
 history = st.session_state.get("ai_market_history", [])
 if history:
@@ -111,8 +123,10 @@ if history:
 with st.expander("Security, privacy and limitations"):
     st.markdown(
         "- AI provider API keys are read from Streamlit secrets and are not stored in the database.\n"
-        "- The request sends the selected symbol, scanner result (if present), optional MTF matrix and up to 20 recent daily OHLC candles to the chosen AI provider.\n"
+        "- The request sends the selected symbol, scanner result (if present), optional Monthly-Daily matrix and up to 20 recent daily OHLC candles to the chosen AI provider.\n"
         "- Broker passwords, API tokens, holdings, funds and order details are not sent.\n"
-        "- Gemini free-tier requests may be used to improve Google products under the current free-tier terms; do not send account identifiers or private financial information.\n- AI can make mistakes and does not provide verified exchange-grade live quotes, news or guaranteed signals.\n"
+        "- Gemini free-tier requests may be used to improve Google products under the current free-tier terms; do not send account identifiers or private financial information.\n"
+        "- AI can make mistakes and does not provide verified exchange-grade live quotes, news or guaranteed signals.\n"
+        "- This page currently explains supplied OHLC/scanner data; it does not independently scan the whole market or analyse chart screenshots.\n"
         "- The assistant only explains and summarises. It cannot place, modify or cancel orders."
     )
