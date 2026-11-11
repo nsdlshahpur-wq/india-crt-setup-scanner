@@ -246,6 +246,17 @@ def _collect_entry_zones(
     return zones
 
 
+def _zone_is_active(data: pd.DataFrame, zone: dict[str, Any], direction: int) -> bool:
+    """A zone is active only while no completed close has invalidated its far edge."""
+    for i in range(int(zone["available_index"]) + 1, len(data)):
+        close = float(data.Close.iloc[i])
+        if direction == 1 and close < float(zone["low"]):
+            return False
+        if direction == -1 and close > float(zone["high"]):
+            return False
+    return True
+
+
 def _find_entry_in_zones(
     data: pd.DataFrame,
     zones: list[dict[str, Any]],
@@ -377,8 +388,9 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
                 sweep_date = ctx["sweep_date"].date().isoformat() if ctx["sweep_date"] is not None else None
                 stage = 2
                 zones = _collect_entry_zones(data, m3_start, choch_index, last, direction, config)
-                available_zones = list(dict.fromkeys(z["type"] for z in zones))
-                candidate = _find_entry_in_zones(data, zones, direction, config.entry_valid_days)
+                active_zones = [z for z in zones if _zone_is_active(data, z, direction)]
+                available_zones = list(dict.fromkeys(z["type"] for z in active_zones))
+                candidate = _find_entry_in_zones(data, active_zones, direction, config.entry_valid_days)
                 if candidate is not None:
                     entry_index = int(candidate["entry_index"])
                     retest_index = int(candidate["retest_index"])
