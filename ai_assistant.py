@@ -122,8 +122,8 @@ def filter_strong_crt_setups(
         model=model,
     )
     text = raw.strip()
-    text = re.sub(r"^\x60{3}(?:json)?\\s*|\\s*\x60{3}$", "", text, flags=re.I)
-    match = re.search(r"\\{.*\\}", text, flags=re.S)
+    text = re.sub(r"^\x60{3}(?:json)?\s*|\s*\x60{3}$", "", text, flags=re.I)
+    match = re.search(r"\{.*\}", text, flags=re.S)
     if not match:
         raise ValueError("AI did not return the required JSON result. Please retry.")
     parsed = json.loads(match.group(0))
