@@ -152,6 +152,7 @@ if "scan_results" in st.session_state:
     target_hit_count = int((results["Stage"] == 4).sum()) if not results.empty else 0
     stop_hit_count = int((results["Stage"] == 5).sum()) if not results.empty else 0
     target_passed_count = int((results["Stage"] == 7).sum()) if not results.empty else 0
+    stop_before_entry_count = int((results["Stage"] == 8).sum()) if not results.empty else 0
     ambiguous_count = int((results["Stage"] == 6).sum()) if not results.empty else 0
 
     st.header("📊 Dashboard")
@@ -161,12 +162,13 @@ if "scan_results" in st.session_state:
     m3.metric("Waiting CHoCH", f"{wait_choch_count:,}")
     m4.metric("Waiting Zones", f"{wait_zone_count:,}")
     m5.metric("Active Entry · Target Pending", f"{active_count:,}")
-    n1, n2, n3, n4, n5 = st.columns(5)
+    n1, n2, n3, n4, n5, n6 = st.columns(6)
     n1.metric("BUY active", f"{buy_count:,}")
     n2.metric("SELL active", f"{sell_count:,}")
     n3.metric("Target Hit", f"{target_hit_count:,}")
     n4.metric("Stop Loss Hit", f"{stop_hit_count:,}")
-    n5.metric("Ambiguous / Passed", f"{ambiguous_count + target_passed_count:,}")
+    n5.metric("Target Hit Before Entry", f"{target_passed_count:,}")
+    n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
 
     if results.empty:
@@ -174,8 +176,8 @@ if "scan_results" in st.session_state:
     else:
         stage_filter = st.multiselect(
             "Show stages",
-            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Passed Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
-            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Passed Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
+            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
+            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         if only_setup:
