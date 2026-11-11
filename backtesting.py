@@ -1,4 +1,4 @@
-"""Historical backtest for the main daily three-month CRT scanner.
+"""Historical backtest for Monthly-Daily CRT with FVG, IFVG, OB and BOB retest entries.
 
 Signals are evaluated on completed daily candles. Entries are simulated at the
 next session open to avoid look-ahead fills. If SL and target are both reached
@@ -15,7 +15,7 @@ import pandas as pd
 from scanner import ScanConfig, _normalise_ohlc, scan_symbol
 
 TRADE_COLUMNS = [
-    "Symbol", "Side", "Signal Date", "Entry Date", "Entry", "Stop Loss",
+    "Symbol", "Side", "Entry Zone Type", "Signal Date", "Entry Date", "Entry", "Stop Loss",
     "Target Opposite CRT Liquidity", "Exit Date", "Exit", "Exit Reason", "Quantity",
     "Gross P&L", "Costs", "Net P&L", "R Multiple", "Equity After",
 ]
@@ -71,7 +71,7 @@ def backtest_symbol(
     max_holding_bars: int = 20,
     round_trip_cost_bps: float = 10.0,
 ) -> dict[str, Any]:
-    """Backtest confirmed CHoCH + FVG retest signals, with sweep-candle SL and opposite CRT liquidity target."""
+    """Backtest confirmed Monthly-Daily CRT signals using a retest in any one of FVG, IFVG, OB or BOB."""
     if initial_capital <= 0:
         raise ValueError("Initial capital must be greater than zero.")
     if not 0 < risk_per_trade_pct <= 10:
@@ -194,6 +194,7 @@ def backtest_symbol(
         trade_rows.append({
             "Symbol": symbol,
             "Side": side,
+            "Entry Zone Type": signal.get("Entry Zone Type", ""),
             "Signal Date": signal_date,
             "Entry Date": data.index[entry_i].date().isoformat(),
             "Entry": entry,
@@ -219,5 +220,5 @@ def backtest_symbol(
         "trades": trades,
         "metrics": metrics,
         "equity_curve": pd.DataFrame(equity_rows),
-        "message": "3-year daily replay of confirmed CHoCH → FVG retest signals. Entry at next session open after confirmation; stop at the CRT sweep candle extreme; target at opposite CRT liquidity. If SL and target touch in one daily bar, SL is assumed first. Costs applied.",
+        "message": "Three-year Daily replay of Monthly CRT sweep/reclaim → Daily CHoCH → retest in FVG / IFVG / OB / BOB → directional confirmation. Entry at next session open after confirmation; stop at the CRT sweep candle extreme; target at opposite CRT liquidity. If SL and target touch in one daily bar, SL is assumed first. Costs applied.",
     }
