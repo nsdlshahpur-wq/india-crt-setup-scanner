@@ -122,5 +122,5 @@ Watchlist items, alert history and journal trades use SQLite at \`data/crt_dashb
 - `scanner.py` — Monthly CRT sweep/reclaim, Daily CHoCH, FVG / IFVG / OB / BOB zones, retest, entry and target outcome.
 - `data_fetch.py` — batched Yahoo Finance daily OHLC downloader.
 - `universe.py` — NSE/BSE stock masters and Nifty equity-index catalogue.
-- `test_scanner.py`, `test_app.py` — offline unit and dashboard tests.
+- `test_scanner.py`, `test_crt_strategy_rules.py`, `test_app.py` — offline unit, synthetic CRT-zone and dashboard tests.
 - `live_smoke_test.py` — small external market-data smoke test.
