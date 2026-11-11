@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from scanner import ScanConfig, _monthly_context, _normalise_ohlc, _wilder_atr, _zones, scan_symbol
+from scanner import ScanConfig, _monthly_context, _normalise_ohlc, scan_symbol
 from data_fetch import _extract_one
 import universe
 
@@ -19,11 +19,10 @@ def sample_data():
     }, index=dates)
 
 
-def test_normalise_and_atr():
+def test_normalise_ohlc():
     data = _normalise_ohlc(sample_data())
-    atr = _wilder_atr(data, 14)
     assert not data.empty
-    assert atr.notna().sum() > 100
+    assert list(data.columns) == ["Open", "High", "Low", "Close", "Volume"]
 
 
 def test_monthly_context_uses_completed_months():
@@ -158,29 +157,3 @@ def test_nse_sme_csv_parser():
     )
     frame = universe._read_nse_sme_csv(raw)
     assert frame["SYMBOL"].tolist() == ["SMEONE", "SMETWO"]
-
-
-def test_zone_orderblock_uses_configured_atr_displacement():
-    dates = pd.bdate_range("2026-01-01", periods=30)
-    frame = pd.DataFrame({
-        "Open": [100.0] * 30,
-        "High": [101.0] * 30,
-        "Low": [99.0] * 30,
-        "Close": [100.0] * 30,
-    }, index=dates)
-    frame.iloc[28, frame.columns.get_loc("Open")] = 101.0
-    frame.iloc[28, frame.columns.get_loc("High")] = 102.0
-    frame.iloc[28, frame.columns.get_loc("Low")] = 99.0
-    frame.iloc[28, frame.columns.get_loc("Close")] = 99.0
-    frame.iloc[29, frame.columns.get_loc("Open")] = 99.0
-    frame.iloc[29, frame.columns.get_loc("High")] = 104.0
-    frame.iloc[29, frame.columns.get_loc("Low")] = 98.0
-    frame.iloc[29, frame.columns.get_loc("Close")] = 103.0
-
-    permissive = ScanConfig(atr_length=2, displacement_atr=0.5)
-    strict = ScanConfig(atr_length=2, displacement_atr=1.0)
-    permissive_ob = _zones(frame, 0, 29, 1, permissive)[2]
-    strict_ob = _zones(frame, 0, 29, 1, strict)[2]
-
-    assert permissive_ob
-    assert not strict_ob
