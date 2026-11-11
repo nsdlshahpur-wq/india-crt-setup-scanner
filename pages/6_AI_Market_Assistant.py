@@ -13,18 +13,18 @@ st.title("🤖 AI Market Assistant")
 st.caption("Optional AI explanation of scanner output and recent OHLC candles. It is not an autonomous market-data or trading engine.")
 
 with st.sidebar:
-    provider = st.selectbox("AI provider", ["Gemini", "Groq"])
-    model_default = "gemini-3.5-flash-lite" if provider == "Gemini" else "openai/gpt-oss-20b"
+    provider = st.selectbox("AI provider", ["OpenAI", "Gemini", "Groq"])
+    model_default = "gpt-5.5" if provider == "OpenAI" else ("gemini-3.5-flash-lite" if provider == "Gemini" else "openai/gpt-oss-20b")
     model = st.text_input("Model ID", model_default)
     st.markdown(
         "**API key setup**\n\n"
-        "Gemini: [Google AI Studio](https://aistudio.google.com/app/apikey)\n\n"
+        "OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)\\n\\n"\n        "Gemini: [Google AI Studio](https://aistudio.google.com/app/apikey)\n\n"
         "Groq: [Groq Console](https://console.groq.com/keys)"
     )
 
 try:
     secrets_ai = st.secrets.get("ai", {})
-    api_key = str(secrets_ai.get("gemini_api_key" if provider == "Gemini" else "groq_api_key", ""))
+    api_key = str(secrets_ai.get("openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key"), ""))
 except Exception:
     api_key = ""
 
