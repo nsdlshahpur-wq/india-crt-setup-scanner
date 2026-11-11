@@ -170,6 +170,19 @@ if "scan_results" in st.session_state:
     n5.metric("Target Hit Before Entry", f"{target_passed_count:,}")
     n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
+    latest_daily_date = (
+        pd.to_datetime(results["Last Candle"], errors="coerce").max()
+        if not results.empty and "Last Candle" in results.columns else pd.NaT
+    )
+    latest_daily_label = (
+        latest_daily_date.date().isoformat()
+        if pd.notna(latest_daily_date) else "not available"
+    )
+    st.caption(
+        f"Latest received Daily candle: {latest_daily_label} · "
+        "LTP is the latest downloaded Daily close, not a live intraday quote. "
+        "Compare the Last Candle date with TradingView before interpreting a setup."
+    )
 
     if results.empty:
         st.warning("डेटा मिला, लेकिन उपलब्ध Monthly/Daily candles में अभी कोई CRT चरण नहीं पहचाना गया। Daily history 2y/3y करके फिर Scan करें।")
