@@ -34,7 +34,9 @@ st.markdown(
     "- **SELL SL:** वास्तविक Monthly sweep candle का High।\n"
     "- **BUY Target:** M1 High liquidity।\n"
     "- **SELL Target:** M1 Low liquidity।\n"
-    "- Active Entry तभी है जब Entry trigger हो चुकी हो और Target अभी बाकी हो।"
+    "- Active Entry तभी है जब Entry trigger हो चुकी हो और Target अभी बाकी हो।\\n"
+    "- **Fresh Entry:** केवल latest completed Daily candle पर confirm हुआ setup BUY/SELL रहेगा।\\n"
+    "- यदि Entry किसी पुरानी Daily candle पर confirm हुई थी और उसके बाद SL/Target नहीं लगा, तो उसे **Missed Entry - No Fresh Entry** दिखाएँगे; उस पुराने भाव पर नया trade signal नहीं देंगे।"
 )
 
 st.subheader("4. Scanner Status")
