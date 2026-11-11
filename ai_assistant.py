@@ -75,7 +75,33 @@ def generate_market_answer(
             raise RuntimeError("Groq returned no answer. Check model access and free-tier quota.")
         return str(choices[0].get("message", {}).get("content", "")).strip()
 
-    raise ValueError("Unsupported AI provider. Choose Gemini or Groq.")
+    if provider == "OpenAI":
+        model_id = model.strip() or "gpt-5.5"
+        response = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model_id,
+                "instructions": system_prompt,
+                "input": full_prompt,
+                "max_output_tokens": 1800,
+            },
+            timeout=90,
+        )
+        response.raise_for_status()
+        data = response.json()
+        answer = str(data.get("output_text", "")).strip()
+        if not answer:
+            parts = []
+            for item in data.get("output", []):
+                if item.get("type") == "message":
+                    parts.extend(part.get("text", "") for part in item.get("content", []) if part.get("type") == "output_text")
+            answer = "\\n".join(parts).strip()
+        if not answer:
+            raise RuntimeError("OpenAI returned no text. Check model access and API project billing.")
+        return answer
+
+    raise ValueError("Unsupported AI provider. Choose OpenAI, Gemini or Groq.")
 
 
 def filter_strong_crt_setups(
