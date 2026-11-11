@@ -18,8 +18,6 @@ ZONE_PRIORITY = {"FVG": 0, "IFVG": 1, "OB": 2, "BOB": 3}
 
 @dataclass(frozen=True)
 class ScanConfig:
-    atr_length: int = 14
-    displacement_atr: float = 1.2
     pivot_left: int = 3
     pivot_right: int = 3
     entry_valid_days: int = 3
@@ -50,15 +48,6 @@ def _normalise_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     for col in cols:
         data[col] = pd.to_numeric(data[col], errors="coerce")
     return data.dropna(subset=required)
-
-
-def _wilder_atr(data: pd.DataFrame, length: int) -> pd.Series:
-    prev = data.Close.shift(1)
-    tr = pd.concat(
-        [data.High - data.Low, (data.High - prev).abs(), (data.Low - prev).abs()],
-        axis=1,
-    ).max(axis=1)
-    return tr.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
 
 
 def _confirmed_pivots(series: pd.Series, left: int, right: int, is_high: bool) -> pd.Series:
@@ -162,8 +151,8 @@ def _collect_entry_zones(
     FVG: same-direction three-candle gap formed after CHoCH.
     IFVG: opposite three-candle gap closed through after CHoCH; then it flips.
     OB: nearest opposite-colour candle before the directional CHoCH candle.
-    BOB: an old opposing block first broken in its original direction and then
-         reclaimed through its far edge after CHoCH.
+    BOB: an older counter-direction block broken through its far edge in the
+         trade direction after CHoCH.
     """
     zones: list[dict[str, Any]] = []
     start, ch, end = int(m3_start), int(choch_index), int(last_index)
@@ -311,34 +300,6 @@ def _find_entry_in_zones(
         "zone": primary["zone"],
         "zone_types": zone_types,
     }
-
-
-def _zones(data: pd.DataFrame, start: int, end: int, direction: int, config: ScanConfig):
-    """Compatibility helper: FVG, IFVG, OB, BOB collections for unit tests."""
-    fvg: list[dict[str, Any]] = []
-    ifvg: list[dict[str, Any]] = []
-    ob: list[dict[str, Any]] = []
-    bob: list[dict[str, Any]] = []
-    atr = _wilder_atr(data, config.atr_length)
-    for i in range(max(start + 2, 2), end + 1):
-        if direction == 1 and float(data.Low.iloc[i]) > float(data.High.iloc[i - 2]):
-            fvg.append(_zone("FVG", data.High.iloc[i - 2], data.Low.iloc[i], i - 2, i))
-        elif direction == -1 and float(data.High.iloc[i]) < float(data.Low.iloc[i - 2]):
-            fvg.append(_zone("FVG", data.High.iloc[i], data.Low.iloc[i - 2], i - 2, i))
-        if i >= 1:
-            opposite = (
-                float(data.Close.iloc[i - 1]) < float(data.Open.iloc[i - 1])
-                if direction == 1 else float(data.Close.iloc[i - 1]) > float(data.Open.iloc[i - 1])
-            )
-            body = abs(float(data.Close.iloc[i]) - float(data.Open.iloc[i]))
-            directional = (
-                float(data.Close.iloc[i]) > float(data.Open.iloc[i])
-                if direction == 1 else float(data.Close.iloc[i]) < float(data.Open.iloc[i])
-            )
-            atr_value = atr.iloc[i]
-            if opposite and directional and pd.notna(atr_value) and body >= config.displacement_atr * atr_value:
-                ob.append(_zone("OB", data.Low.iloc[i - 1], data.High.iloc[i - 1], i - 1, i))
-    return fvg, ifvg, ob, bob
 
 
 def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConfig) -> dict[str, Any] | None:
