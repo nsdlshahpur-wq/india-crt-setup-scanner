@@ -68,6 +68,73 @@ def _confirmed_pivots(series: pd.Series, left: int, right: int, is_high: bool) -
     return pd.Series(out, index=series.index)
 
 
+def _find_m3_choch(
+    data: pd.DataFrame,
+    m3_start: int,
+    sweep_index: int,
+    last_index: int,
+    direction: int,
+    config: ScanConfig,
+) -> dict[str, Any]:
+    """Find a Daily CHoCH close in M3 against the latest pivot formed after M2 sweep.
+
+    The pivot may be formed/confirmed during the remainder of M2 and then broken
+    during M3. Only pivots whose centre candle is strictly after the sweep are
+    eligible. A pivot must be confirmed before the candle that breaks it, so
+    this remains a no-look-ahead test.
+    """
+    if direction not in {-1, 1} or sweep_index < 0 or m3_start > last_index:
+        return {"index": None, "reference_level": np.nan, "pivot_date": None}
+
+    pivots = _confirmed_pivots(
+        data.High if direction == 1 else data.Low,
+        config.pivot_left,
+        config.pivot_right,
+        is_high=(direction == 1),
+    )
+
+    # _confirmed_pivots stores a pivot at its confirmation candle. Requiring
+    # confirmation_index >= sweep_index + right + 1 guarantees the pivot centre
+    # itself is after the sweep candle.
+    confirm_start = max(
+        0,
+        int(sweep_index) + max(1, int(config.pivot_right)) + 1,
+    )
+    latest_level = np.nan
+    latest_pivot_date = None
+
+    first_m3_bar = max(int(m3_start), confirm_start + 1)
+    for i in range(first_m3_bar, int(last_index) + 1):
+        available = pivots.iloc[confirm_start:i].dropna()
+        if available.empty:
+            continue
+
+        confirmation_date = available.index[-1]
+        latest_level = float(available.iloc[-1])
+        confirmation_index = int(data.index.get_loc(confirmation_date))
+        pivot_index = confirmation_index - int(config.pivot_right)
+        if pivot_index >= 0:
+            latest_pivot_date = data.index[pivot_index].date().isoformat()
+
+        broken = (
+            float(data.Close.iloc[i]) > latest_level
+            if direction == 1
+            else float(data.Close.iloc[i]) < latest_level
+        )
+        if broken:
+            return {
+                "index": i,
+                "reference_level": latest_level,
+                "pivot_date": latest_pivot_date,
+            }
+
+    return {
+        "index": None,
+        "reference_level": latest_level,
+        "pivot_date": latest_pivot_date,
+    }
+
+
 def _three_month_context(data: pd.DataFrame) -> dict[str, Any] | None:
     """M1 and M2 are completed months; M3 is the current Daily-structure month."""
     if data.empty:
@@ -308,7 +375,12 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
     direction = int(ctx["bias"])
     last = len(data) - 1
     entry = sl = np.nan
-    sweep_date = entry_date = retest_date = choch_date = None
+    sweep_date = (
+        ctx["sweep_date"].date().isoformat()
+        if ctx["sweep_date"] is not None else None
+    )
+    entry_date = retest_date = choch_date = choch_pivot_date = None
+    choch_reference_level = np.nan
     zone_low = zone_high = np.nan
     entry_zone_type = ""
     available_zones: list[str] = []
@@ -322,31 +394,20 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         stage = 6
     elif direction:
         m3_indices = np.flatnonzero(data.index >= ctx["m3_start"])
-        if len(m3_indices):
+        if len(m3_indices) and ctx["sweep_date"] is not None:
             m3_start = int(m3_indices[0])
-            highs = _confirmed_pivots(data.High, config.pivot_left, config.pivot_right, True)
-            lows = _confirmed_pivots(data.Low, config.pivot_left, config.pivot_right, False)
-            choch_index = None
-            # A CHoCH must break a pivot that was itself confirmed during M3.
-            # Do not reuse a stale swing level from a preceding month.
-            first_choch_bar = max(m3_start + 1, m3_start + config.pivot_left + config.pivot_right)
-            for i in range(first_choch_bar, last + 1):
-                available = highs.iloc[m3_start:i].dropna() if direction == 1 else lows.iloc[m3_start:i].dropna()
-                if available.empty:
-                    continue
-                level = float(available.iloc[-1])
-                broken = (
-                    float(data.Close.iloc[i]) > level
-                    if direction == 1 else float(data.Close.iloc[i]) < level
-                )
-                if broken:
-                    choch_index = i
-                    break
+            sweep_matches = np.flatnonzero(data.index == pd.Timestamp(ctx["sweep_date"]))
+            sweep_index = int(sweep_matches[-1]) if len(sweep_matches) else -1
+            choch = _find_m3_choch(
+                data, m3_start, sweep_index, last, direction, config
+            )
+            choch_index = choch["index"]
+            choch_reference_level = choch["reference_level"]
+            choch_pivot_date = choch["pivot_date"]
             if choch_index is None:
                 stage = 1
             else:
                 choch_date = data.index[choch_index].date().isoformat()
-                sweep_date = ctx["sweep_date"].date().isoformat() if ctx["sweep_date"] is not None else None
                 stage = 2
                 zones = _collect_entry_zones(data, m3_start, choch_index, last, direction, config)
                 active_zones = [z for z in zones if _zone_is_active(data, z, direction)]
@@ -462,6 +523,7 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         "M1 Month": ctx["m1_period"], "M2 Month": ctx["m2_period"], "M3 Month": ctx["m3_period"],
         "Sweep Date": sweep_date, "Sweep Candle High": ctx.get("sweep_high", np.nan),
         "Sweep Candle Low": ctx.get("sweep_low", np.nan), "CHoCH Date": choch_date,
+        "CHoCH Reference Level": choch_reference_level, "CHoCH Pivot Date": choch_pivot_date,
         "Retest Date": retest_date, "Entry Date": entry_date,
         "Zone Low": zone_low, "Zone High": zone_high,
         "Last Candle": data.index[-1].date().isoformat(),
