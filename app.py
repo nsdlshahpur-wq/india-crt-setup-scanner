@@ -8,7 +8,6 @@ import streamlit as st
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
-from mtf_scanner import analyze_multi_timeframe
 from universe import make_universe
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
@@ -26,8 +25,6 @@ with st.sidebar:
     history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=0)
     st.divider()
     st.subheader("Strategy")
-    atr_length = st.number_input("ATR Length", min_value=2, max_value=100, value=14)
-    displacement_atr = st.number_input("Displacement × ATR", min_value=0.1, max_value=5.0, value=1.2, step=0.1)
     pivot_left = st.number_input("Pivot Left", min_value=1, max_value=15, value=3)
     pivot_right = st.number_input("Pivot Right", min_value=1, max_value=15, value=3)
     entry_valid_days = st.number_input("Entry valid (daily candles)", min_value=1, max_value=10, value=3)
@@ -76,8 +73,6 @@ if refresh:
             status.caption(f"Last processed: {last_symbol}")
 
         cfg = ScanConfig(
-            atr_length=int(atr_length),
-            displacement_atr=float(displacement_atr),
             pivot_left=int(pivot_left),
             pivot_right=int(pivot_right),
             entry_valid_days=int(entry_valid_days),
@@ -124,8 +119,8 @@ if refresh:
 
         result_df = pd.DataFrame(rows)
         if not result_df.empty:
-            stage_order = {3: 0, 2: 1, 1: 2, 0: 3}
-            result_df["_order"] = result_df["Stage"].map(stage_order).fillna(4)
+            stage_order = {3: 0, 2: 1, 1: 2, 4: 3, 5: 4, 6: 5, 7: 6, 0: 7}
+            result_df["_order"] = result_df["Stage"].map(stage_order).fillna(8)
             result_df = result_df.sort_values(["_order", "Symbol"]).drop(columns="_order")
             # Keep every CRT stage in session state; apply display filters below.
 
@@ -151,23 +146,27 @@ if "scan_results" in st.session_state:
     buy_count = int((results["Setup"] == "BUY").sum()) if not results.empty else 0
     sell_count = int((results["Setup"] == "SELL").sum()) if not results.empty else 0
     wait_choch_count = int((results["Stage"] == 1).sum()) if not results.empty else 0
-    wait_retest_count = int((results["Stage"] == 2).sum()) if not results.empty else 0
+    wait_retest_count = int((results["Setup"] == "Wait Retest").sum()) if not results.empty else 0
+    wait_zone_count = int((results["Setup"] == "Wait FVG/IFVG/OB/BOB").sum()) if not results.empty else 0
     active_count = int((results["Stage"] == 3).sum()) if not results.empty else 0
     target_hit_count = int((results["Stage"] == 4).sum()) if not results.empty else 0
     stop_hit_count = int((results["Stage"] == 5).sum()) if not results.empty else 0
+    target_passed_count = int((results["Stage"] == 7).sum()) if not results.empty else 0
+    ambiguous_count = int((results["Stage"] == 6).sum()) if not results.empty else 0
 
     st.header("📊 Dashboard")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Universe entries", f"{total_universe:,}")
     m2.metric("Data received", f"{data_count:,}")
     m3.metric("Waiting CHoCH", f"{wait_choch_count:,}")
-    m4.metric("Waiting FVG / Retest", f"{wait_retest_count:,}")
+    m4.metric("Waiting Zones", f"{wait_zone_count:,}")
     m5.metric("Active Entry · Target Pending", f"{active_count:,}")
-    n1, n2, n3, n4 = st.columns(4)
+    n1, n2, n3, n4, n5 = st.columns(5)
     n1.metric("BUY active", f"{buy_count:,}")
     n2.metric("SELL active", f"{sell_count:,}")
     n3.metric("Target Hit", f"{target_hit_count:,}")
     n4.metric("Stop Loss Hit", f"{stop_hit_count:,}")
+    n5.metric("Ambiguous / Passed", f"{ambiguous_count + target_passed_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
 
     if results.empty:
@@ -175,8 +174,8 @@ if "scan_results" in st.session_state:
     else:
         stage_filter = st.multiselect(
             "Show stages",
-            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG", "Target Hit", "Stop Loss Hit", "Ambiguous", "-"],
-            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG", "Target Hit", "Stop Loss Hit", "Ambiguous", "-"],
+            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Passed Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
+            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Passed Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         if only_setup:
@@ -227,7 +226,6 @@ if "scan_results" in st.session_state:
                 "LTP": st.column_config.NumberColumn(format="₹%.2f"),
                 "Entry": st.column_config.NumberColumn(format="₹%.2f"),
                 "SL": st.column_config.NumberColumn(format="₹%.2f"),
-                "T1 (2R)": st.column_config.NumberColumn(format="₹%.2f"),
                 "Target (M1 Monthly H/L)": st.column_config.NumberColumn(format="₹%.2f"),
                 "Invalidation": st.column_config.NumberColumn(format="₹%.2f"),
             },
@@ -327,93 +325,12 @@ if "scan_results" in st.session_state:
         else:
             tv_chart_symbol = "NSE:" + chart_symbol
 
-        # Multi-timeframe CRT analysis runs only for the selected symbol because
-        # intraday history is rate-limited and not available for every Indian ticker.
         st.divider()
-        st.subheader("🧭 Multi-Timeframe CRT Matrix")
-        st.caption("एक selected शेयर / index पर पाँचों CRT → Entry timeframe pairs का अलग-अलग analysis करें.")
-        if st.button("🔎 Analyze all 5 timeframe pairs", type="primary", key="run_mtf_analysis"):
-            try:
-                with st.spinner(f"{chart_symbol}: Monthly, Weekly, Daily, 4H और 1H CRT data जाँचा जा रहा है..."):
-                    mtf_rows, mtf_errors = analyze_multi_timeframe(chart_symbol)
-                st.session_state["mtf_rows"] = mtf_rows
-                st.session_state["mtf_errors"] = mtf_errors
-                st.session_state["mtf_symbol"] = chart_symbol
-            except Exception as exc:
-                st.error(f"Multi-timeframe analysis failed: {exc}")
-
-        if st.session_state.get("mtf_symbol") == chart_symbol and st.session_state.get("mtf_rows"):
-            mtf_df = pd.DataFrame(st.session_state["mtf_rows"])
-            # Do not embed a TradingView iframe inside the app.
-            # Offer direct TradingView links per CRT -> entry timeframe instead.
-            tv_pair_intervals = {
-                "Monthly": "D",
-                "Weekly": "240",
-                "Daily": "30",
-                "4H": "5",
-                "1H": "1",
-            }
-            valid_pairs = mtf_df[mtf_df["CRT Mark"] == "✓ VALID CRT"].copy()
-            tv_link_rows = []
-            for pair in valid_pairs.to_dict("records"):
-                crt_tf = pair["CRT TF"]
-                entry_tf = pair["Entry TF"]
-                interval = tv_pair_intervals.get(crt_tf, "D")
-                tv_pair_url = (
-                    "https://www.tradingview.com/chart/?symbol="
-                    + tv_chart_symbol.replace(" ", "%20")
-                    + "&interval="
-                    + interval
-                )
-                tv_link_rows.append(
-                    f'**✓ {crt_tf} CRT → {entry_tf} Entry:** [Open {entry_tf} chart on TradingView]({tv_pair_url})'
-                )
-            if tv_link_rows:
-                st.markdown("\n".join(tv_link_rows))
-            else:
-                st.info("अभी कोई valid CRT नहीं मिला। Invalid / unconfirmed CRT को mark नहीं किया गया है।")
-
-            def _highlight_only_valid_crt(row):
-                valid = row.get("CRT Mark") == "✓ VALID CRT"
-                style = "background-color: #e8f5e9; color: #1b5e20; font-weight: 600" if valid else ""
-                return [style] * len(row)
-
-            mtf_styled = mtf_df.style.apply(_highlight_only_valid_crt, axis=1)
-            st.dataframe(
-                mtf_styled,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Retest Price": st.column_config.NumberColumn(format="₹%.2f"),
-                    "CRT Range High": st.column_config.NumberColumn(format="₹%.2f"),
-                    "CRT Range Low": st.column_config.NumberColumn(format="₹%.2f"),
-                    "Zone Low": st.column_config.NumberColumn(format="₹%.2f"),
-                    "Zone High": st.column_config.NumberColumn(format="₹%.2f"),
-                    "Entry": st.column_config.NumberColumn(format="₹%.2f"),
-                    "SL": st.column_config.NumberColumn(format="₹%.2f"),
-                    "Target": st.column_config.NumberColumn(format="₹%.2f"),
-                },
-            )
-            with st.expander("ℹ️ CRT signal rules and data limitations"):
-                st.markdown(
-                    "- **CRT sweep:** पिछले CRT candle के High/Low के बाहर wick और उसी boundary के अंदर close.\n"
-                    "- **Entry confirmation:** Entry timeframe पर 6-candle structure break और उसी दिशा का 3-candle FVG.\n"
-                    "- **VALID:** CRT sweep/reclaim मिला, लेकिन entry confirmation अभी नहीं मिली.\n"
-                    "- **ENTRY READY:** CRT valid है और structure break + FVG दोनों मिले.\n"
-                    "- **INVALID:** Sweep candle के बाद CRT close ने swept extreme तोड़ दिया.\n"
-                    "- **HCS:** अभी अलग HCS rule उपलब्ध नहीं है; इसलिए table में Structure / CHoCH दिखाया गया है.\n"
-                    "- Yahoo Finance की intraday history सीमित है: 1m लगभग 7 दिन, 5m/30m लगभग 60 दिन और 1H लगभग 730 दिन तक मिल सकती है. अनुपलब्ध data को signal नहीं माना जाएगा."
-                )
-            mtf_errors = st.session_state.get("mtf_errors", {})
-            if mtf_errors:
-                with st.expander(f"Unavailable timeframe data ({len(mtf_errors)})"):
-                    st.dataframe(
-                        pd.DataFrame([{"Timeframe": k, "Reason": v} for k, v in mtf_errors.items()]),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-        else:
-            st.info("पहले ऊपर का **Analyze all 5 timeframe pairs** बटन दबाएँ। Intraday analysis केवल चुने हुए symbol पर चलेगा।")
+        st.subheader("🧭 Monthly (1M) → Daily (1D) CRT")
+        st.caption(
+            "यह Scanner केवल Monthly liquidity context और Daily CHoCH / FVG / IFVG / OB / BOB retest "
+            "पर काम करता है। Weekly, 4H, 1H या intraday entry timeframe इस strategy में उपयोग नहीं होते।"
+        )
 
         # Keep the original in-app Plotly CRT/indicator chart; TradingView opens directly via links above.
         chart_data = price_map.get(chart_symbol)
@@ -425,9 +342,6 @@ if "scan_results" in st.session_state:
             required_chart_cols = ["Open", "High", "Low", "Close"]
             if all(col in chart_data.columns for col in required_chart_cols):
                 chart_data = chart_data.dropna(subset=required_chart_cols).tail(250)
-                # Indicator overlays for the price chart
-                chart_data["EMA 20"] = chart_data["Close"].ewm(span=20, adjust=False).mean()
-                chart_data["EMA 50"] = chart_data["Close"].ewm(span=50, adjust=False).mean()
                 fig = go.Figure(
                     data=[
                         go.Candlestick(
@@ -437,9 +351,7 @@ if "scan_results" in st.session_state:
                             low=chart_data["Low"],
                             close=chart_data["Close"],
                             name=chart_symbol,
-                        ),
-                        go.Scatter(x=chart_data.index, y=chart_data["EMA 20"], name="EMA 20", line=dict(width=1.5)),
-                        go.Scatter(x=chart_data.index, y=chart_data["EMA 50"], name="EMA 50", line=dict(width=1.5)),
+                        )
                     ]
                 )
                 match = results[results["Symbol"] == chart_symbol] if not results.empty else pd.DataFrame()
@@ -452,8 +364,7 @@ if "scan_results" in st.session_state:
                         ("M2 Low", setup_row.get("M2 Low"), "royalblue", "dot"),
                         ("Entry", setup_row.get("Entry"), "green", "solid"),
                         ("Stop Loss", setup_row.get("SL"), "red", "solid"),
-                        ("Target 1", setup_row.get("T1 (2R)"), "green", "dash"),
-                        ("M1 Full-Month Target", setup_row.get("Target (M1 Monthly H/L)"), "purple", "dash"),
+                        ("Opposite M1 Liquidity Target", setup_row.get("Target (M1 Monthly H/L)"), "purple", "dash"),
                     ]
                     for label, value, color, dash in levels:
                         if pd.notna(value) and isinstance(value, (int, float)) and value > 0:
@@ -464,8 +375,21 @@ if "scan_results" in st.session_state:
                                 annotation_text=f"{label}: {float(value):.2f}",
                                 annotation_position="right",
                             )
+                    zone_low = setup_row.get("Zone Low")
+                    zone_high = setup_row.get("Zone High")
+                    if pd.notna(zone_low) and pd.notna(zone_high):
+                        fig.add_hrect(
+                            y0=float(zone_low),
+                            y1=float(zone_high),
+                            opacity=0.16,
+                            line_width=0,
+                            annotation_text=f'{setup_row.get("Entry Zone Type", "Entry Zone")} Retest Area',
+                            annotation_position="top left",
+                        )
                     st.caption(
                         f"Bias: {setup_row.get('Bias', '-')} · Setup: {setup_row.get('Setup', '-')} · "
+                        f"Zone: {setup_row.get('Entry Zone Type', '-')} · "
+                        f"Target: {setup_row.get('Target Status', '-')} · "
                         f"Last candle: {setup_row.get('Last Candle', '-')}"
                     )
                 fig.update_layout(
@@ -479,55 +403,6 @@ if "scan_results" in st.session_state:
                     legend=dict(orientation="h"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
-
-                # Dedicated technical-indicator section, based on selected symbol's daily candles
-                st.divider()
-                st.header("📈 Indicator Section")
-                close = chart_data["Close"].astype(float)
-                delta = close.diff()
-                gain = delta.clip(lower=0).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-                loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-                rs = gain / loss.replace(0, float("nan"))
-                chart_data["RSI 14"] = 100 - (100 / (1 + rs))
-                prev_close = close.shift(1)
-                true_range = pd.concat(
-                    [chart_data["High"] - chart_data["Low"],
-                     (chart_data["High"] - prev_close).abs(),
-                     (chart_data["Low"] - prev_close).abs()], axis=1
-                ).max(axis=1)
-                chart_data["ATR 14"] = true_range.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-                ema12 = close.ewm(span=12, adjust=False).mean()
-                ema26 = close.ewm(span=26, adjust=False).mean()
-                chart_data["MACD"] = ema12 - ema26
-                chart_data["MACD Signal"] = chart_data["MACD"].ewm(span=9, adjust=False).mean()
-                chart_data["MACD Histogram"] = chart_data["MACD"] - chart_data["MACD Signal"]
-
-                last = chart_data.iloc[-1]
-                ind1, ind2, ind3, ind4 = st.columns(4)
-                ind1.metric("RSI (14)", f"{last['RSI 14']:.2f}" if pd.notna(last["RSI 14"]) else "N/A")
-                ind2.metric("ATR (14)", f"₹{last['ATR 14']:.2f}" if pd.notna(last["ATR 14"]) else "N/A")
-                ind3.metric("EMA 20", f"₹{last['EMA 20']:.2f}")
-                ind4.metric("EMA 50", f"₹{last['EMA 50']:.2f}")
-
-                indicator_fig = go.Figure()
-                indicator_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["RSI 14"], name="RSI 14"))
-                indicator_fig.add_hline(y=70, line_dash="dash", annotation_text="Overbought 70")
-                indicator_fig.add_hline(y=30, line_dash="dash", annotation_text="Oversold 30")
-                indicator_fig.update_layout(
-                    title=f"{chart_symbol} — RSI (14)", yaxis_title="RSI", yaxis_range=[0, 100],
-                    height=300, template="plotly_white", xaxis_rangeslider_visible=False,
-                )
-                st.plotly_chart(indicator_fig, use_container_width=True)
-
-                macd_fig = go.Figure()
-                macd_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["MACD"], name="MACD"))
-                macd_fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["MACD Signal"], name="Signal"))
-                macd_fig.add_trace(go.Bar(x=chart_data.index, y=chart_data["MACD Histogram"], name="Histogram"))
-                macd_fig.update_layout(
-                    title=f"{chart_symbol} — MACD (12, 26, 9)", height=320,
-                    template="plotly_white", xaxis_rangeslider_visible=False,
-                )
-                st.plotly_chart(macd_fig, use_container_width=True)
             else:
                 st.warning("इस symbol के लिए OHLC chart columns उपलब्ध नहीं हैं।")
 
@@ -539,10 +414,11 @@ if "scan_results" in st.session_state:
 else:
     st.info("पहला scan शुरू करने के लिए **Scan market** दबाएँ।")
     st.markdown(
-        "**Stage meaning**  \n"
-        "- **Stage 1 – Wait Sweep:** Monthly CRT bias मौजूद है।  \n"
-        "- **Stage 2 – Wait Entry:** Bias के बाद daily liquidity sweep मिल चुका है।  \n"
-        "- **Stage 3 – BUY / SELL:** Sweep के बाद displacement candle ने entry condition पूरी की है।"
+        "**Strategy flow**  \n"
+        "- **M1 / M2:** Monthly range, one-side liquidity sweep और full-range reclaim.  \n"
+        "- **Daily:** CHoCH के बाद FVG / IFVG / OB / BOB में से किसी एक का retest.  \n"
+        "- **Entry:** Retest के बाद उसी दिशा में confirming Daily close.  \n"
+        "- **Active:** Sweep-candle SL और opposite M1 liquidity target बाकी."
     )
 
 st.divider()
