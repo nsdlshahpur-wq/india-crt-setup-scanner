@@ -211,36 +211,42 @@ def _collect_entry_zones(
                 zones.append(_zone("OB", data.Low.iloc[j], data.High.iloc[j], j, ch))
                 break
 
-    # BOB: opposite block origin -> break in old direction -> close back through
-    # the other edge after CHoCH. Retest is allowed only after the flip candle.
+    # BOB: an older counter-direction block (not the nearest OB candle) is
+    # broken through its far edge in the trade direction after CHoCH. The
+    # broken block is treated as a breaker only after that completed close;
+    # its retest must happen on a later Daily candle.
     bob_start = max(start, ch - max(1, int(config.bob_lookback_days)))
+    latest_ob_index = next(
+        (
+            j for j in range(ch - 1, max(start, ch - max(1, int(config.ob_lookback_days))) - 1, -1)
+            if (
+                float(data.Close.iloc[j]) < float(data.Open.iloc[j])
+                if direction == 1 else float(data.Close.iloc[j]) > float(data.Open.iloc[j])
+            )
+        ),
+        None,
+    )
     for j in range(bob_start, ch):
-        if direction == 1:
-            origin = float(data.Close.iloc[j]) > float(data.Open.iloc[j])
-            old_break = any(
-                float(data.Close.iloc[k]) < float(data.Low.iloc[j])
-                and float(data.Close.iloc[k]) < float(data.Open.iloc[k])
-                for k in range(j + 1, ch)
-            )
-            flip_test = lambda k: (
-                float(data.Close.iloc[k]) > float(data.High.iloc[j])
-                and float(data.Close.iloc[k]) > float(data.Open.iloc[k])
-            )
-        else:
-            origin = float(data.Close.iloc[j]) < float(data.Open.iloc[j])
-            old_break = any(
-                float(data.Close.iloc[k]) > float(data.High.iloc[j])
-                and float(data.Close.iloc[k]) > float(data.Open.iloc[k])
-                for k in range(j + 1, ch)
-            )
-            flip_test = lambda k: (
-                float(data.Close.iloc[k]) < float(data.Low.iloc[j])
-                and float(data.Close.iloc[k]) < float(data.Open.iloc[k])
-            )
-        if origin and old_break:
-            flip = next((k for k in range(ch, end + 1) if flip_test(k)), None)
-            if flip is not None:
-                zones.append(_zone("BOB", data.Low.iloc[j], data.High.iloc[j], j, flip, flip_index=flip))
+        if j == latest_ob_index:
+            continue
+        counter_candle = (
+            float(data.Close.iloc[j]) < float(data.Open.iloc[j])
+            if direction == 1 else float(data.Close.iloc[j]) > float(data.Open.iloc[j])
+        )
+        if not counter_candle:
+            continue
+        flip = next(
+            (
+                k for k in range(ch, end + 1)
+                if (
+                    float(data.Close.iloc[k]) > float(data.High.iloc[j])
+                    if direction == 1 else float(data.Close.iloc[k]) < float(data.Low.iloc[j])
+                )
+            ),
+            None,
+        )
+        if flip is not None:
+            zones.append(_zone("BOB", data.Low.iloc[j], data.High.iloc[j], j, flip, flip_index=flip))
 
     zones.sort(key=lambda z: (z["available_index"], ZONE_PRIORITY[z["type"]], z["origin_index"]))
     return zones
@@ -365,18 +371,20 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         m3_indices = np.flatnonzero(data.index >= ctx["m3_start"])
         if len(m3_indices):
             m3_start = int(m3_indices[0])
-            highs = _confirmed_pivots(data.High, config.pivot_left, config.pivot_right, True).ffill()
-            lows = _confirmed_pivots(data.Low, config.pivot_left, config.pivot_right, False).ffill()
+            highs = _confirmed_pivots(data.High, config.pivot_left, config.pivot_right, True)
+            lows = _confirmed_pivots(data.Low, config.pivot_left, config.pivot_right, False)
             choch_index = None
-            for i in range(max(m3_start + 1, config.pivot_left + config.pivot_right + 1), last + 1):
-                level = highs.iloc[i - 1] if direction == 1 else lows.iloc[i - 1]
+            # A CHoCH must break a pivot that was itself confirmed during M3.
+            # Do not reuse a stale swing level from a preceding month.
+            first_choch_bar = max(m3_start + 1, m3_start + config.pivot_left + config.pivot_right)
+            for i in range(first_choch_bar, last + 1):
+                available = highs.iloc[m3_start:i].dropna() if direction == 1 else lows.iloc[m3_start:i].dropna()
+                if available.empty:
+                    continue
+                level = float(available.iloc[-1])
                 broken = (
-                    float(data.Close.iloc[i]) > float(level)
-                    if direction == 1 and pd.notna(level)
-                    else (
-                        float(data.Close.iloc[i]) < float(level)
-                        if direction == -1 and pd.notna(level) else False
-                    )
+                    float(data.Close.iloc[i]) > level
+                    if direction == 1 else float(data.Close.iloc[i]) < level
                 )
                 if broken:
                     choch_index = i
@@ -404,15 +412,50 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
                     stage = 3
 
     if stage == 3 and pd.notna(entry) and pd.notna(sl) and pd.notna(target):
-        if (direction == 1 and entry >= target) or (direction == -1 and entry <= target):
+        entry_ts = pd.Timestamp(entry_date)
+        sweep_ts = pd.Timestamp(ctx["sweep_date"]) if ctx.get("sweep_date") is not None else pd.Timestamp(ctx["m2_start"])
+        # Do not issue a fresh entry after the monthly target liquidity or the
+        # sweep-candle stop has already been taken between the M2 sweep and entry.
+        before_entry = data.loc[(data.index > sweep_ts) & (data.index <= entry_ts)]
+        pre_entry_outcome = None
+        for bar_time, bar in before_entry.iterrows():
+            hit_target = float(bar["High"]) >= target if direction == 1 else float(bar["Low"]) <= target
+            # Entry is at the confirming candle close; stop tests on that same
+            # candle happened before entry, so only test SL on earlier candles.
+            hit_stop = (
+                float(bar["Low"]) <= sl if direction == 1 else float(bar["High"]) >= sl
+            ) if bar_time < entry_ts else False
+            if hit_target and hit_stop:
+                pre_entry_outcome = "AMBIGUOUS"
+                break
+            if hit_target:
+                pre_entry_outcome = "TARGET"
+                break
+            if hit_stop:
+                pre_entry_outcome = "STOP"
+                break
+
+        if pre_entry_outcome == "TARGET":
             stage = 7
-            target_status = "TARGET ALREADY PASSED BEFORE ENTRY"
+            target_status = "TARGET HIT BEFORE ENTRY"
+            entry_status = "NOT TRIGGERED - TARGET ALREADY TAKEN"
+        elif pre_entry_outcome == "STOP":
+            stage = 8
+            target_status = "STOP LOSS HIT BEFORE ENTRY"
+            entry_status = "NOT TRIGGERED - SWEEP STOP ALREADY HIT"
+        elif pre_entry_outcome == "AMBIGUOUS":
+            stage = 6
+            target_status = "AMBIGUOUS - SL AND TARGET TOUCHED BEFORE ENTRY"
+            entry_status = "NOT TRIGGERED - AMBIGUOUS PRE-ENTRY CANDLE"
+        elif (direction == 1 and entry >= target) or (direction == -1 and entry <= target):
+            stage = 7
+            target_status = "TARGET ALREADY PASSED AT ENTRY"
+            entry_status = "NOT TRIGGERED - TARGET ALREADY TAKEN"
         else:
             entry_status = "TRIGGERED"
             target_status = "TARGET PENDING"
-            # Entry is treated as the confirmation candle close; only later candles
-            # can resolve its target/stop. Same-candle dual hits are not guessed.
-            for _, bar in data.loc[data.index > pd.Timestamp(entry_date)].iterrows():
+            # Only candles after the confirmation close can resolve this trade.
+            for _, bar in data.loc[data.index > entry_ts].iterrows():
                 hit_target = float(bar["High"]) >= target if direction == 1 else float(bar["Low"]) <= target
                 hit_stop = float(bar["Low"]) <= sl if direction == 1 else float(bar["High"]) >= sl
                 if hit_target and hit_stop:
@@ -439,9 +482,12 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         setup = "Stop Loss Hit"
     elif stage == 6:
         setup = "Ambiguous"
-        target_status = "AMBIGUOUS MONTHLY SWEEP OR SAME-CANDLE SL/TARGET"
+        if target_status == "NOT READY":
+            target_status = "AMBIGUOUS MONTHLY SWEEP OR SAME-CANDLE SL/TARGET"
     elif stage == 7:
-        setup = "Target Passed Before Entry"
+        setup = "Target Hit Before Entry"
+    elif stage == 8:
+        setup = "Stop Loss Hit Before Entry"
     else:
         setup = "No Valid Monthly Sweep"
 
