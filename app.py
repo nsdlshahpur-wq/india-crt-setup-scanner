@@ -31,7 +31,7 @@ with st.sidebar:
     pivot_left = st.number_input("Pivot Left", min_value=1, max_value=15, value=3)
     pivot_right = st.number_input("Pivot Right", min_value=1, max_value=15, value=3)
     entry_valid_days = st.number_input("Entry valid (daily candles)", min_value=1, max_value=10, value=3)
-    only_setup = st.checkbox("Show only confirmed CRT entries", value=True)
+    only_setup = st.checkbox("Show only active, confirmed entries (target not hit)", value=False, help="बंद रखने पर Waiting CHoCH, Waiting FVG/Retest और completed setups भी दिखेंगे।")
     st.divider()
     st.caption(
         "Data source: Yahoo Finance via yfinance. This is an unofficial source; prices can be delayed, "
@@ -127,9 +127,7 @@ if refresh:
             stage_order = {3: 0, 2: 1, 1: 2, 0: 3}
             result_df["_order"] = result_df["Stage"].map(stage_order).fillna(4)
             result_df = result_df.sort_values(["_order", "Symbol"]).drop(columns="_order")
-            if only_setup:
-                # Strong CRT means the complete rule sequence is confirmed (Stage 3).
-                result_df = result_df[result_df["Stage"] == 3]
+            # Keep every CRT stage in session state; apply display filters below.
 
         st.session_state["scan_results"] = result_df
         st.session_state["scan_price_map"] = price_map
@@ -152,30 +150,40 @@ if "scan_results" in st.session_state:
     scan_time = st.session_state.get("scan_time", "")
     buy_count = int((results["Setup"] == "BUY").sum()) if not results.empty else 0
     sell_count = int((results["Setup"] == "SELL").sum()) if not results.empty else 0
-    sweep_count = int((results["Stage"] == 2).sum()) if not results.empty else 0
-    wait_sweep_count = int((results["Stage"] == 1).sum()) if not results.empty else 0
+    wait_choch_count = int((results["Stage"] == 1).sum()) if not results.empty else 0
+    wait_retest_count = int((results["Stage"] == 2).sum()) if not results.empty else 0
+    active_count = int((results["Stage"] == 3).sum()) if not results.empty else 0
+    target_hit_count = int((results["Stage"] == 4).sum()) if not results.empty else 0
+    stop_hit_count = int((results["Stage"] == 5).sum()) if not results.empty else 0
 
     st.header("📊 Dashboard")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Universe entries", f"{total_universe:,}")
     m2.metric("Data received", f"{data_count:,}")
-    m3.metric("BUY setups", f"{buy_count:,}")
-    m4.metric("SELL setups", f"{sell_count:,}")
-    m5.metric("Confirmed CRT", f"{buy_count + sell_count:,}")
+    m3.metric("Waiting CHoCH", f"{wait_choch_count:,}")
+    m4.metric("Waiting FVG / Retest", f"{wait_retest_count:,}")
+    m5.metric("Active Entry · Target Pending", f"{active_count:,}")
+    n1, n2, n3, n4 = st.columns(4)
+    n1.metric("BUY active", f"{buy_count:,}")
+    n2.metric("SELL active", f"{sell_count:,}")
+    n3.metric("Target Hit", f"{target_hit_count:,}")
+    n4.metric("Stop Loss Hit", f"{stop_hit_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
 
     if results.empty:
-        st.warning("चुने गए filter में कोई setup-ready symbol नहीं मिला। 'Show only setup-ready symbols' बंद करके सभी scanned symbols देखें।")
+        st.warning("डेटा मिला, लेकिन उपलब्ध Monthly/Daily candles में अभी कोई CRT चरण नहीं पहचाना गया। Daily history 2y/3y करके फिर Scan करें।")
     else:
         stage_filter = st.multiselect(
             "Show stages",
-            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "-"],
-            default=["BUY", "SELL"],
+            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG", "Target Hit", "Stop Loss Hit", "Ambiguous", "-"],
+            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG", "Target Hit", "Stop Loss Hit", "Ambiguous", "-"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
+        if only_setup:
+            view = view[(view["Stage"] == 3) & view["Setup"].isin(["BUY", "SELL"])]
         preferred = [
             "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
-            "Target (M1 Monthly H/L)", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
+            "Target (M1 Monthly H/L)", "Target Status", "Entry Status", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
             "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]].copy()
@@ -206,7 +214,7 @@ if "scan_results" in st.session_state:
             _tv_url_for_row(row)
             for row in results.loc[view.index].to_dict("records")
         ]
-        st.caption("कंपनी / Index के Name पर क्लिक करके TradingView chart खोलें। किसी row को select करने पर नीचे CRT levels और chart details दिखेंगे।")
+        st.caption("केवल BUY/SELL Stage 3 में Entry Trigger हो चुकी है और Target बाकी है। Waiting CHoCH/FVG/Retest को Entry नहीं माना जाता। कंपनी के Name पर क्लिक करके TradingView chart खोलें।")
         st.dataframe(
             view,
             use_container_width=True,
