@@ -3,11 +3,11 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ai_assistant import filter_strong_crt_setups
+from ai_assistant import filter_strong_crt_setups, generate_market_answer
 
 st.set_page_config(page_title="AI Strong CRT Filter", page_icon="🧠", layout="wide")
 st.title("🧠 AI Strong CRT Filter")
-st.caption("AI validates scanner candidates using only your CRT checklist. No unrelated indicators or strategies.")
+st.caption("AI validates scanner candidates using only your CRT checklist. Monthly (1M) liquidity context + Daily (1D) structure only.")
 
 with st.sidebar:
     provider = st.selectbox("AI provider", ["OpenAI", "Gemini", "Groq"])
@@ -15,12 +15,30 @@ with st.sidebar:
     model = st.text_input("Model ID", model_default)
 try:
     secrets_ai = st.secrets.get("ai", {})
-    api_key = str(secrets_ai.get("openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key"), ""))
+    secret_name = "openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key")
+    api_key = str(secrets_ai.get(secret_name, ""))
 except Exception:
+    secret_name = "openai_api_key" if provider == "OpenAI" else ("gemini_api_key" if provider == "Gemini" else "groq_api_key")
     api_key = ""
 
 if not api_key:
-    st.warning(f"{provider} API key नहीं मिली। Streamlit App settings → Secrets में key जोड़ें। API key GitHub या chat में साझा न करें।")
+    st.warning(f"{provider} API key नहीं मिली। Streamlit App settings → Secrets में यह जोड़ें:")
+    st.code(f'[ai]\n{secret_name} = "YOUR_API_KEY"', language="toml")
+else:
+    st.success(f"{provider} API key found in Streamlit secrets.")
+
+with st.sidebar:
+    if st.button("🔌 Test AI connection", key="test_crt_ai_connection", disabled=not bool(api_key.strip())):
+        try:
+            with st.spinner(f"Testing {provider} connection..."):
+                test_answer = generate_market_answer(
+                    provider, api_key, "Reply with exactly: AI_CONNECTION_OK", model=model
+                )
+            st.success("AI connection successful.")
+            st.caption(test_answer[:180])
+        except Exception as exc:
+            detail = str(exc).replace(api_key, "[hidden API key]")[:500]
+            st.error(f"{type(exc).__name__}: {detail}")
 
 results = st.session_state.get("scan_results")
 if not isinstance(results, pd.DataFrame) or results.empty:
@@ -33,8 +51,8 @@ candidates_df = results[(stage == 3) & setup.isin(["BUY", "SELL"])].copy()
 
 st.metric("Scanner-confirmed CRT candidates", len(candidates_df))
 st.markdown(
-    "**AI की जाँच:** M1 range → M2 liquidity sweep + reclaim → M3 Daily CHoCH → "
-    "same-direction FVG retest → sweep-candle SL → opposite M1 liquidity target. "
+    "**AI की जाँच:** Monthly (1M) liquidity sweep/reclaim → Daily (1D) CHoCH → "
+    "same-direction FVG retest → sweep-candle SL → opposite Monthly liquidity target. "
     "IFVG, OB, RSI, MACD, EMA या कोई अन्य अतिरिक्त filter नहीं।"
 )
 if candidates_df.empty:
@@ -55,7 +73,8 @@ else:
             st.session_state["ai_crt_filter_result"] = result
             st.session_state["ai_crt_filter_run_symbols"] = [row["Symbol"] for row in rows]
         except Exception as exc:
-            st.error(f"AI CRT filtering failed ({type(exc).__name__}). API key, model ID, quota और network जाँचें।")
+            detail = str(exc).replace(api_key, "[hidden API key]")[:500]
+            st.error(f"AI CRT filtering failed ({type(exc).__name__}): {detail}")
 
 filtered = st.session_state.get("ai_crt_filter_result")
 if filtered:
@@ -74,4 +93,8 @@ if filtered:
             st.dataframe(pd.DataFrame(rejected), use_container_width=True, hide_index=True)
 
 with st.expander("महत्वपूर्ण सीमा"):
-    st.write("AI केवल scanner के Stage 3 candidates validate करता है। AI की राय गलत हो सकती है; यह guaranteed signal या order execution नहीं है। Yahoo Finance OHLC data को TradingView / broker chart पर verify करें।")
+    st.write(
+        "AI केवल scanner के Stage 3 BUY/SELL candidates validate करता है; यह पूरे बाजार को अपने-आप scan नहीं करता। "
+        "AI की राय गलत हो सकती है; यह guaranteed signal या order execution नहीं है। "
+        "Yahoo Finance OHLC data को TradingView / broker chart पर verify करें।"
+    )
