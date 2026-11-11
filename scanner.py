@@ -126,6 +126,9 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                 common=None
                 if fvg:
                     common=(fvg[-1][0],fvg[-1][1])
+                choch_date=data.index[ch_idx].date().isoformat()
+                sweep_date=ctx["m2_period"]
+                stage=2
                 if common:
                     zone_low,zone_high=common
                     # Retest then confirmation close in expected direction, after CHoCH.
@@ -136,15 +139,55 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                         if touched and confirm:
                             entry=float(data.Close.iloc[i]); entry_date=data.index[i].date().isoformat()
                             sl=float(ctx["sweep_low"]) if direction==1 and pd.notna(ctx.get("sweep_low")) else (float(ctx["sweep_high"]) if direction==-1 and pd.notna(ctx.get("sweep_high")) else (ctx["m2_low"] if direction==1 else ctx["m2_high"]))
-                            stage=3; choch_date=data.index[ch_idx].date().isoformat(); sweep_date=ctx["m2_period"]; break
-                else: stage=2
+                            stage=3
+                            break
             else: stage=1
     target=ctx["m1_high"] if direction==1 else (ctx["m1_low"] if direction==-1 else np.nan)
+    target_status="NOT READY"
+    entry_status="WAITING"
+    if stage==3 and pd.notna(entry) and pd.notna(sl) and pd.notna(target):
+        if (direction==1 and entry>=target) or (direction==-1 and entry<=target):
+            stage=4
+            target_status="TARGET ALREADY PASSED BEFORE ENTRY"
+        else:
+            entry_status="TRIGGERED"
+            target_status="TARGET PENDING"
+            # Evaluate candles from the entry day onward. If SL and target occur
+            # in the same daily candle, do not guess which level was hit first.
+            for _, bar in data.loc[data.index >= pd.Timestamp(entry_date)].iterrows():
+                hit_target = bar["High"] >= target if direction==1 else bar["Low"] <= target
+                hit_stop = bar["Low"] <= sl if direction==1 else bar["High"] >= sl
+                if hit_target and hit_stop:
+                    stage=6
+                    target_status="AMBIGUOUS (SL AND TARGET SAME CANDLE)"
+                    break
+                if hit_target:
+                    stage=4
+                    target_status="TARGET HIT"
+                    break
+                if hit_stop:
+                    stage=5
+                    target_status="STOP LOSS HIT"
+                    break
     bias_name="Bullish" if direction==1 else ("Bearish" if direction==-1 else "Neutral")
-    setup="BUY" if stage==3 and direction==1 else ("SELL" if stage==3 and direction==-1 else ("Wait CHoCH" if stage==1 else ("Wait Retest" if stage==2 else "-")))
-    return {"Symbol":symbol,"Name":name,"Bias":bias_name,"Stage":stage,"Setup":setup,"LTP":ltp,"Entry":entry,"SL":sl,
+    if stage==3:
+        setup="BUY" if direction==1 else "SELL"
+    elif stage==1:
+        setup="Wait CHoCH"
+    elif stage==2:
+        setup="Wait Retest" if pd.notna(zone_low) and pd.notna(zone_high) else "Wait FVG"
+    elif stage==4:
+        setup="Target Hit"
+    elif stage==5:
+        setup="Stop Loss Hit"
+    elif stage==6:
+        setup="Ambiguous"
+    else:
+        setup="-"
+    return {"Symbol":symbol,"Name":name,"Bias":bias_name,"Stage":stage,"Setup":setup,"LTP":ltp,"SL":sl,"Entry":entry,
         "T1 (2R)":(entry+2*(entry-sl) if direction==1 and pd.notna(entry) and pd.notna(sl) else (entry-2*(sl-entry) if direction==-1 and pd.notna(entry) and pd.notna(sl) else np.nan)),
-        "Target (M1 Monthly H/L)":target,"Invalidation":ctx["m1_low"] if direction==1 else (ctx["m1_high"] if direction==-1 else np.nan),
+        "Target (M1 Monthly H/L)":target,"Target Status":target_status,"Entry Status":entry_status,
+        "Invalidation":ctx["m1_low"] if direction==1 else (ctx["m1_high"] if direction==-1 else np.nan),
         "M1 High":ctx["m1_high"],"M1 Low":ctx["m1_low"],"M2 High":ctx["m2_high"],"M2 Low":ctx["m2_low"],
         "M2 Close":ctx["m2_close"],"M1 Month":ctx["m1_period"],"M2 Month":ctx["m2_period"],"M3 Month":ctx["m3_period"],
         "Sweep Date":sweep_date,"Sweep Candle High":ctx.get("sweep_high",np.nan),"Sweep Candle Low":ctx.get("sweep_low",np.nan),"CHoCH Date":choch_date,"Entry Date":entry_date,"Zone Low":zone_low,"Zone High":zone_high,
