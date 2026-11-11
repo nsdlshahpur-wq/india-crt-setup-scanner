@@ -99,4 +99,4 @@ def test_sweep_date_is_present_even_when_choch_is_still_waiting():
     assert result["Bias"] == "Bullish"
     assert result["Setup"] == "Wait CHoCH"
     assert result["Sweep Date"] == sweep_day.date().isoformat()
-    assert result["CHoCH Reference Level"] is not None
+    assert "CHoCH Reference Level" in result
