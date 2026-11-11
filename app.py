@@ -185,7 +185,8 @@ if "scan_results" in st.session_state:
         preferred = [
             "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
             "Target (M1 Monthly H/L)", "Target Status", "Entry Status", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
-            "M2 Close", "M3 Month", "Sweep Date", "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
+            "M2 Close", "M3 Month", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
+            "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]].copy()
 
@@ -364,6 +365,7 @@ if "scan_results" in st.session_state:
                         ("M1 Low", setup_row.get("M1 Low"), "gray", "dash"),
                         ("M2 High", setup_row.get("M2 High"), "royalblue", "dot"),
                         ("M2 Low", setup_row.get("M2 Low"), "royalblue", "dot"),
+                        ("Daily CHoCH Reference", setup_row.get("CHoCH Reference Level"), "orange", "dot"),
                         ("Entry", setup_row.get("Entry"), "green", "solid"),
                         ("Stop Loss", setup_row.get("SL"), "red", "solid"),
                         ("Opposite M1 Liquidity Target", setup_row.get("Target (M1 Monthly H/L)"), "purple", "dash"),
@@ -390,6 +392,8 @@ if "scan_results" in st.session_state:
                         )
                     st.caption(
                         f"Bias: {setup_row.get('Bias', '-')} · Setup: {setup_row.get('Setup', '-')} · "
+                        f"CHoCH ref: {setup_row.get('CHoCH Reference Level', '-')} "
+                        f"(pivot {setup_row.get('CHoCH Pivot Date', '-')}) · "
                         f"Zone: {setup_row.get('Entry Zone Type', '-')} · "
                         f"Target: {setup_row.get('Target Status', '-')} · "
                         f"Last candle: {setup_row.get('Last Candle', '-')}"
