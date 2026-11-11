@@ -299,7 +299,7 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
     now = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata"))
     if not data.empty and data.index[-1].date() == now.date() and now.time() < dtime(15, 40):
         data = data.iloc[:-1]
-    if len(data) < max(config.atr_length + 10, 80):
+    if len(data) < 80:
         return None
     ctx = _three_month_context(data)
     if ctx is None:
