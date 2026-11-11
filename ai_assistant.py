@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 
 import requests
 
@@ -194,6 +195,16 @@ def _candidate_crt_errors(row: dict) -> list[str]:
         if value is None or str(value).strip() in {"", "nan", "None"}:
             errors.append(f"{field} missing")
 
+    try:
+        sweep_date = date.fromisoformat(str(row.get("Sweep Date")))
+        choch_date = date.fromisoformat(str(row.get("CHoCH Date")))
+        retest_date = date.fromisoformat(str(row.get("Retest Date")))
+        entry_date = date.fromisoformat(str(row.get("Entry Date")))
+        if not sweep_date < choch_date <= retest_date <= entry_date:
+            errors.append("Date sequence must be Sweep < CHoCH <= Retest <= Entry")
+    except (TypeError, ValueError):
+        errors.append("CRT event dates must be valid ISO dates")
+
     allowed_zones = {"FVG", "IFVG", "OB", "BOB"}
     zone_types = {item.strip() for item in str(row.get("Entry Zone Type", "")).split("+") if item.strip()}
     if not zone_types or not zone_types.issubset(allowed_zones):
@@ -236,6 +247,8 @@ def _candidate_crt_errors(row: dict) -> list[str]:
         if not zone_low < zone_high:
             errors.append("Entry zone bounds are invalid")
         if row.get("Setup") == "BUY":
+            if not sweep_low < m1_low:
+                errors.append("BUY sweep candle low did not pierce M1 low")
             if not stop < entry < target:
                 errors.append("BUY levels must satisfy SL < Entry < M1 target")
             if abs(stop - sweep_low) > max(0.01, abs(sweep_low) * 1e-6):
@@ -245,6 +258,8 @@ def _candidate_crt_errors(row: dict) -> list[str]:
             if entry <= zone_high:
                 errors.append("BUY confirmation close is not above the retested zone")
         elif row.get("Setup") == "SELL":
+            if not sweep_high > m1_high:
+                errors.append("SELL sweep candle high did not pierce M1 high")
             if not target < entry < stop:
                 errors.append("SELL levels must satisfy M1 target < Entry < SL")
             if abs(stop - sweep_high) > max(0.01, abs(sweep_high) * 1e-6):
