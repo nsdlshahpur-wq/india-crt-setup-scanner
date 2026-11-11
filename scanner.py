@@ -468,7 +468,7 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         else:
             entry_status = "TRIGGERED"
             target_status = "TARGET PENDING"
-            # Only candles after the confirmation close can resolve this trade.
+            # Resolve the trade using candles strictly after the confirmation close.
             for _, bar in data.loc[data.index > entry_ts].iterrows():
                 hit_target = float(bar["High"]) >= target if direction == 1 else float(bar["Low"]) <= target
                 hit_stop = float(bar["Low"]) <= sl if direction == 1 else float(bar["High"]) >= sl
@@ -481,6 +481,15 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
                 if hit_stop:
                     stage, target_status = 5, "STOP LOSS HIT"
                     break
+
+            # A historical confirmation is not a fresh trade signal. Keep the
+            # historical entry/levels for audit, but suppress BUY/SELL once a
+            # later completed candle exists without having hit SL or target.
+            entry_age_bars = last - entry_index
+            if stage == 3 and entry_age_bars > 0:
+                stage = 9
+                target_status = "MISSED - ENTRY CONFIRMED ON AN EARLIER CANDLE"
+                entry_status = "MISSED - NO FRESH ENTRY"
 
     bias = "Bullish" if direction == 1 else ("Bearish" if direction == -1 else "Neutral")
     if stage == 3:
@@ -502,6 +511,8 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         setup = "Target Hit Before Entry"
     elif stage == 8:
         setup = "Stop Loss Hit Before Entry"
+    elif stage == 9:
+        setup = "Missed Entry - No Fresh Entry"
     else:
         setup = "No Valid Monthly Sweep"
 
@@ -525,6 +536,7 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         "Sweep Candle Low": ctx.get("sweep_low", np.nan), "CHoCH Date": choch_date,
         "CHoCH Reference Level": choch_reference_level, "CHoCH Pivot Date": choch_pivot_date,
         "Retest Date": retest_date, "Entry Date": entry_date,
+        "Entry Age (Daily Bars)": (last - int(data.index.get_loc(pd.Timestamp(entry_date)))) if entry_date else np.nan,
         "Zone Low": zone_low, "Zone High": zone_high,
         "Last Candle": data.index[-1].date().isoformat(),
     }
