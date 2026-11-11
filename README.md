@@ -1,11 +1,15 @@
 # India CRT Setup Scanner (Python)
 
-A Streamlit dashboard that ports the supplied Pine Script CRT workflow into Python:
+A Streamlit dashboard for the Monthly (1M) → Daily (1D) CRT strategy.
 
-1. **Monthly CRT bias:** the latest completed month sweeps the previous completed month's high/low and closes back inside.
-2. **Daily liquidity sweep:** a daily candle runs a prior rolling high/low and closes back across it.
-3. **Displacement entry:** a recent candle closes beyond a confirmed pivot (or fallback five-candle level) with a body at least `Displacement × ATR`.
-4. **Risk levels:** stop at the sweep candle extreme, T1 at 2R, and T2 at the previous completed month's opposite extreme.
+Strategy sequence:
+1. M1 is the previous completed month's High–Low range.
+2. M2 must sweep exactly one side of M1 and close back inside the full M1 range.
+3. M3 Daily candles are used for CHoCH and entry-zone analysis.
+4. After CHoCH, entry may use a retest in ANY ONE of FVG, IFVG, OB or BOB.
+5. A directional Daily confirmation close is required after the retest.
+6. SL is the actual M2 sweep candle extreme. Target is opposite M1 liquidity.
+7. Active BUY/SELL rows have a triggered entry and target still pending. Waiting, target-hit, stop-hit and ambiguous states are separate.
 
 ## Market universe
 
@@ -59,26 +63,30 @@ Pushes to `main` run:
 
 ## Strategy notes
 
-- The scanner uses completed daily candles and excludes today's still-forming daily candle before 15:40 IST.
-- This is a Python implementation of the supplied strategy's intent, not a byte-for-byte Pine execution clone. Differences can occur due to candle confirmation, pivot ties, vendor histories, corporate actions, and missing symbols.
-- Validate signals on your broker's chart before considering any trade. This is a screening tool, not investment advice or a guaranteed signal system.
+- The active strategy uses only Monthly and Daily context. Weekly, 4H, 1H and intraday entry pairs are not part of the active scanner UI.
+- The scanner excludes today's still-forming Daily candle before 15:40 IST.
+- FVG, IFVG, OB and BOB are mechanical OHLC definitions in scanner.py. They are an explicit implementation convention and should be checked against the chart.
+- CHoCH is approximated by a completed Daily close beyond the most recently confirmed pivot in the Monthly sweep direction. Discretionary CHoCH labels can differ.
+- Target/stop outcomes are checked from Daily OHLC after the confirmation close. If both levels are touched in one later Daily candle, the result is marked ambiguous.
+- Automated tests check code and synthetic examples; they do not prove live signal accuracy or profitability. Verify every setup in TradingView or a broker chart before trading.
 
 ## Added dashboard modules
 
 The Streamlit navigation also includes:
 
-- **Backtesting & Performance** — replays the main daily three-month CRT scanner on one selected symbol. Signals are known at completed daily close and simulated entries occur at the next session open. If stop and target are both touched within the same daily candle, the backtest assumes stop first. It applies a configurable transaction-cost/slippage estimate, risk-based sizing and reports win rate, profit factor, average R, realized-equity maximum drawdown and trade count. It does not yet backtest all five MTF pairs.
-- **Watchlist & Alerts** — stores a local watchlist, manually scans up to 10 symbols per run for valid CRT / entry-ready MTF states, and records new in-app alerts. It does not send browser push, SMS, WhatsApp or email notifications.
+- **Backtesting & Performance** — replays the Monthly-Daily CRT scanner on one selected symbol and includes FVG / IFVG / OB / BOB zone type. Signals are known at completed daily close and simulated entries occur at the next session open. If stop and target are both touched within the same daily candle, the backtest assumes stop first. It applies a configurable transaction-cost/slippage estimate, risk-based sizing and reports win rate, profit factor, average R, realized-equity maximum drawdown and trade count. The backtest uses the same scanner signal logic and simulates entry at the next session open after confirmation.
+- **Watchlist & Alerts** — stores a local watchlist, manually scans up to 10 symbols per run for valid Monthly-Daily CRT states, and records new in-app alerts. It does not send browser push, SMS, WhatsApp or email notifications.
 - **Trade Journal** — records manual entries and exits, costs, realized P&L and R multiple. It never sends broker orders.
-- **AI Market Assistant** — optional Gemini or Groq connector. It explains the selected symbol's scanner result and recent daily OHLC; it does not independently scan every exchange, guarantee live data, execute trades or replace the market-data feed.
+- **AI Market Assistant** — optional OpenAI, Gemini or Groq connector. It explains the selected symbol's scanner result and recent daily OHLC; it does not independently scan every exchange, guarantee live data, execute trades or replace the market-data feed.
 - **Multiple Broker Connections** — read-only profile checks for Zerodha Kite, Upstox and DhanHQ. This does not yet switch the scanner to broker candle feeds and does not place or modify orders.
 
 ## Optional AI setup
 
-Create an API key with Google AI Studio or Groq, then add it in Streamlit app settings → **Secrets**. Example:
+Create an API key with OpenAI, Google AI Studio or Groq, then add it in Streamlit app settings → **Secrets**. Example:
 
 \`\`\`toml
 [ai]
+openai_api_key = "YOUR_OPENAI_API_KEY"
 gemini_api_key = "YOUR_GEMINI_API_KEY"
 groq_api_key = "YOUR_GROQ_API_KEY"
 \`\`\`
@@ -111,7 +119,7 @@ Watchlist items, alert history and journal trades use SQLite at \`data/crt_dashb
 ## Project files
 
 - `app.py` — Streamlit dashboard and universe selection.
-- `scanner.py` — CRT bias, sweep, ATR, displacement, entry and target calculations.
+- `scanner.py` — Monthly CRT sweep/reclaim, Daily CHoCH, FVG / IFVG / OB / BOB zones, retest, entry and target outcome.
 - `data_fetch.py` — batched Yahoo Finance daily OHLC downloader.
 - `universe.py` — NSE/BSE stock masters and Nifty equity-index catalogue.
 - `test_scanner.py`, `test_app.py` — offline unit and dashboard tests.
