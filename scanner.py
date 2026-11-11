@@ -120,19 +120,21 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                 broken=(data.Close.iloc[i]>prior) if direction==1 and pd.notna(prior) else ((data.Close.iloc[i]<prior) if direction==-1 and pd.notna(prior) else False)
                 if broken: ch_idx=i; break
             if ch_idx is not None:
-                fvg,ifvg,ob=_zones(data,start,ch_idx,direction,config)
-                # User's CRT rule: use the directional FVG only.
-                # IFVG and Order Block are deliberately NOT required filters.
+                # CRT rule: the directional FVG must form AFTER Daily CHoCH.
+                fvg,ifvg,ob=_zones(data,ch_idx,last,direction,config)
                 common=None
+                fvg_idx=None
                 if fvg:
                     common=(fvg[-1][0],fvg[-1][1])
+                    fvg_idx=fvg[-1][2]
                 choch_date=data.index[ch_idx].date().isoformat()
                 sweep_date=ctx["m2_period"]
                 stage=2
                 if common:
                     zone_low,zone_high=common
-                    # Retest then confirmation close in expected direction, after CHoCH.
-                    entry_start = max(ch_idx + 1, last - max(1, config.entry_valid_days) + 1)
+                    # Only candles after the FVG-formation candle can count as a retest.
+                    # Search the full remaining history so an older valid entry is not forgotten.
+                    entry_start = int(fvg_idx) + 1
                     for i in range(entry_start,last+1):
                         touched=data.Low.iloc[i]<=zone_high and data.High.iloc[i]>=zone_low
                         confirm=data.Close.iloc[i]>data.Open.iloc[i] and data.Close.iloc[i]>zone_high if direction==1 else data.Close.iloc[i]<data.Open.iloc[i] and data.Close.iloc[i]<zone_low
@@ -154,7 +156,7 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
             target_status="TARGET PENDING"
             # Evaluate candles from the entry day onward. If SL and target occur
             # in the same daily candle, do not guess which level was hit first.
-            for _, bar in data.loc[data.index >= pd.Timestamp(entry_date)].iterrows():
+            for _, bar in data.loc[data.index > pd.Timestamp(entry_date)].iterrows():
                 hit_target = bar["High"] >= target if direction==1 else bar["Low"] <= target
                 hit_stop = bar["Low"] <= sl if direction==1 else bar["High"] >= sl
                 if hit_target and hit_stop:
