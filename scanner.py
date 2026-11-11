@@ -1,4 +1,4 @@
-"""Three-month CRT model with Daily CHoCH and strict FVG/IFVG/OB confluence retest."""
+"""Three-month CRT model: sweep/reclaim, Daily CHoCH, directional FVG retest."""
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import time as dtime
@@ -121,15 +121,11 @@ def scan_symbol(symbol:str,name:str,raw_data:pd.DataFrame,config:ScanConfig)->di
                 if broken: ch_idx=i; break
             if ch_idx is not None:
                 fvg,ifvg,ob=_zones(data,start,ch_idx,direction,config)
-                # Strict confluence: overlap of at least one FVG, IFVG and OB interval.
+                # User's CRT rule: use the directional FVG only.
+                # IFVG and Order Block are deliberately NOT required filters.
                 common=None
-                for zf in fvg:
-                    for zi in ifvg:
-                        for zo in ob:
-                            lo=max(zf[0],zi[0],zo[0]); hi=min(zf[1],zi[1],zo[1])
-                            if lo<=hi: common=(lo,hi); break
-                        if common:break
-                    if common:break
+                if fvg:
+                    common=(fvg[-1][0],fvg[-1][1])
                 if common:
                     zone_low,zone_high=common
                     # Retest then confirmation close in expected direction, after CHoCH.
