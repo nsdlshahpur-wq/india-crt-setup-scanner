@@ -154,6 +154,7 @@ if "scan_results" in st.session_state:
     target_passed_count = int((results["Stage"] == 7).sum()) if not results.empty else 0
     stop_before_entry_count = int((results["Stage"] == 8).sum()) if not results.empty else 0
     ambiguous_count = int((results["Stage"] == 6).sum()) if not results.empty else 0
+    missed_entry_count = int((results["Stage"] == 9).sum()) if not results.empty else 0
 
     st.header("📊 Dashboard")
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -169,6 +170,7 @@ if "scan_results" in st.session_state:
     n4.metric("Stop Loss Hit", f"{stop_hit_count:,}")
     n5.metric("Target Hit Before Entry", f"{target_passed_count:,}")
     n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
+    st.metric("Missed / Stale Entry (not a fresh signal)", f"{missed_entry_count:,}")
     st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
     latest_daily_date = (
         pd.to_datetime(results["Last Candle"], errors="coerce").max()
@@ -189,8 +191,8 @@ if "scan_results" in st.session_state:
     else:
         stage_filter = st.multiselect(
             "Show stages",
-            ["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
-            default=["BUY", "SELL", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
+            ["BUY", "SELL", "Missed Entry - No Fresh Entry", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
+            default=["BUY", "SELL", "Missed Entry - No Fresh Entry", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"],
         )
         view = results[results["Setup"].isin(stage_filter)].copy()
         if only_setup:
@@ -229,7 +231,7 @@ if "scan_results" in st.session_state:
             _tv_url_for_row(row)
             for row in results.loc[view.index].to_dict("records")
         ]
-        st.caption("केवल BUY/SELL Stage 3 में Entry Trigger हो चुकी है और Target बाकी है। Waiting CHoCH/FVG/Retest को Entry नहीं माना जाता। कंपनी के Name पर क्लिक करके TradingView chart खोलें।")
+        st.caption("केवल आज की latest completed Daily candle पर confirm हुआ BUY/SELL fresh signal है। पुरानी confirmation, जिसमें SL/Target अभी नहीं लगा, को Missed Entry दिखाया जाता है—उस पर नया trade न लें। Waiting CHoCH/FVG/Retest को Entry नहीं माना जाता। कंपनी के Name पर क्लिक करके TradingView chart खोलें।")
         st.dataframe(
             view,
             use_container_width=True,
