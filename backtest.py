@@ -211,7 +211,7 @@ def calculate_metrics(trades: list[dict[str, Any]], initial_capital: float) -> d
     losses = closed[closed["Net P&L"] <= 0]
     decisive = len(wins) + len(losses)
     gross_profit = float(closed["Net P&L"].clip(lower=0).sum())
-    gross_loss = float(abs(closed["Net P&L"].clip(upper=0).sum())))
+    gross_loss = float(abs(closed["Net P&L"].clip(upper=0).sum()))
     curve = _equity_curve(trades, initial_capital)
     net_pnl = float(frame["Net P&L"].sum())
     max_dd = abs(float(curve["Drawdown %"].min())) if not curve.empty else 0.0
