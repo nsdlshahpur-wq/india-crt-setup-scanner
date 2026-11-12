@@ -25,9 +25,11 @@ def _num(row: Any, key: str, default: float = np.nan) -> float:
         return default
 
 def _zones(value: Any) -> dict[str, float]:
-    zone = str(value or "").upper()
-    return {"zone_fvg": float("FVG" in zone), "zone_ifvg": float("IFVG" in zone),
-            "zone_ob": float("OB" in zone), "zone_bob": float("BOB" in zone)}
+    # Zone types are emitted as '+'-joined tokens; exact matching avoids
+    # treating IFVG as FVG or BOB as OB.
+    zone_types = {part.strip() for part in str(value or "").upper().split("+")}
+    return {"zone_fvg": float("FVG" in zone_types), "zone_ifvg": float("IFVG" in zone_types),
+            "zone_ob": float("OB" in zone_types), "zone_bob": float("BOB" in zone_types)}
 
 def _month(value: Any) -> tuple[float, float]:
     try:
