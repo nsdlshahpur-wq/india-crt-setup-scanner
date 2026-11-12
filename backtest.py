@@ -94,6 +94,26 @@ def _make_candidate(
         return None
 
     exit_info = _exit_trade(data, entry_index, direction, stop, target)
+    # Entry-time CRT context features for the optional ML model. These values
+    # are all present on the confirmation candle; no future exit data is used.
+    entry_base = max(abs(entry), 1e-9)
+    m1_high = float(signal.get("M1 High", np.nan))
+    m1_low = float(signal.get("M1 Low", np.nan))
+    sweep_low = float(signal.get("Sweep Candle Low", np.nan))
+    sweep_high = float(signal.get("Sweep Candle High", np.nan))
+    choch_level = float(signal.get("CHoCH Reference Level", np.nan))
+    zone_low = float(signal.get("Zone Low", np.nan))
+    zone_high = float(signal.get("Zone High", np.nan))
+    m1_range_pct = (m1_high - m1_low) / entry_base * 100.0 if np.isfinite(m1_high + m1_low) else np.nan
+    sweep_depth_pct = (
+        abs(sweep_low - m1_low) / entry_base * 100.0
+        if direction == 1 and np.isfinite(sweep_low + m1_low)
+        else abs(sweep_high - m1_high) / entry_base * 100.0
+        if direction == -1 and np.isfinite(sweep_high + m1_high)
+        else np.nan
+    )
+    choch_distance_pct = abs(entry - choch_level) / entry_base * 100.0 if np.isfinite(choch_level) else np.nan
+    zone_width_pct = abs(zone_high - zone_low) / entry_base * 100.0 if np.isfinite(zone_high + zone_low) else np.nan
     return {
         "Symbol": symbol,
         "Name": name,
@@ -109,6 +129,10 @@ def _make_candidate(
         "Exit Index": int(exit_info["exit_index"]),
         "Bars Held": int(exit_info["exit_index"] - entry_index),
         "Entry Zone": str(signal.get("Entry Zone Type", "")),
+        "M1 Range %": m1_range_pct,
+        "Sweep Depth %": sweep_depth_pct,
+        "CHoCH Distance %": choch_distance_pct,
+        "Zone Width %": zone_width_pct,
         "M1 Month": str(signal.get("M1 Month", "")),
         "M2 Month": str(signal.get("M2 Month", "")),
         "M3 Month": str(signal.get("M3 Month", "")),
