@@ -127,3 +127,13 @@ or source control, revoke it and create a replacement. The assistant uses
 - Claude and ChatGPT are not included as free API providers: consumer subscriptions do not include unlimited API usage. They can be added later if an API key and budget are available.
 - Only public-market technical fields for selected symbols are sent; do not add account credentials, personal data or broker information. Some free tiers may retain prompts or use them to improve provider services; review each provider's data terms.
 - The scanner remains usable without any of these keys. If no key is configured, or a provider reaches its quota, the app reports its status and keeps the CRT scan available.
+
+
+## CRT AI Trading Copilot
+
+- The **CRT AI Trading Copilot** gives five independent AI research opinions using configured Gemini, Groq, Mistral, OpenRouter free-model routing and Cloudflare Workers AI credentials.
+- On request it downloads the latest available Daily OHLC for NIFTY 50, BANK NIFTY, SENSEX, India VIX and mapped sector/broad-market indices, calculates 1-day/5-day/1-month changes, and retrieves India-market RSS headline titles.
+- It combines that snapshot with the latest scanner rows and backtest/ML validation context available in the current Streamlit session. It explains market regime, sector clues, CRT setup stages, missing confirmations and risk flags.
+- Market pulse is a snapshot from the latest available Yahoo Finance Daily candle, not live quotes or guaranteed real-time exchange data. Google News RSS headlines are headlines only; the app does not claim to have verified the full articles.
+- Each configured AI responds independently. Missing keys, quota limits or provider errors are shown separately and do not stop the scanner. Add keys in Streamlit Cloud → App → Settings → Secrets as described above.
+- The Copilot is research support only. It does not place trades, and AI consensus is not a calibrated probability or guaranteed trading signal. Confirm all prices and setups on a broker/chart before acting.
