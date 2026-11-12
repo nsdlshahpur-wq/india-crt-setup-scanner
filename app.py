@@ -634,7 +634,7 @@ with backtest_tab:
          curve = bt["equity_curve"]
          st.divider()
          ensemble_report = st.session_state.get("crt_ensemble_report", {})
-         st.subheader("🧠 CRT Multi-AI Ensemble")
+         st.subheader("🧠 CRT Historical ML Ensemble")
          if ensemble_report.get("status") == "ready":
              ec = st.columns(4)
              ec[0].metric("AI labelled trades", f"{ensemble_report['sample_count']:,}")
