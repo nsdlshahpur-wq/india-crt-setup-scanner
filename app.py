@@ -705,7 +705,60 @@ with ai_tab:
             "किसमें सेटअप", "सेटअप बना", "आज के लिए", "buy", "sell"
         )
         direct_stock_lookup = any(term in q_lower for term in setup_lookup_terms)
-        if direct_stock_lookup:
+        asks_for_index = any(term in q_lower for term in (
+            "index", "indices", "nifty", "bank nifty", "banknifty", "sensex",
+            "इंडेक्स", "निफ्टी", "बैंक निफ्टी", "सेंसेक्स"
+        ))
+        if asks_for_index:
+            try:
+                with st.spinner("Nifty, Bank Nifty और उपलब्ध Indian indices का CRT scan चल रहा है..."):
+                    index_universe = make_universe("All Indian indices")
+                    index_universe = index_universe[
+                        index_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
+                    ].drop_duplicates(subset=["Symbol"]).copy()
+                    index_symbols = index_universe["Symbol"].tolist()
+                    index_prices, index_errors = download_market_data(
+                        index_symbols, period=history_period, batch_size=40
+                    )
+                    index_rows = []
+                    index_cfg = ScanConfig(
+                        pivot_left=int(pivot_left),
+                        pivot_right=int(pivot_right),
+                        entry_valid_days=int(entry_valid_days),
+                    )
+                    index_scan_rows = index_universe[
+                        index_universe["Symbol"].isin(index_prices)
+                    ].drop_duplicates(subset=["Symbol"])
+                    for item in index_scan_rows.itertuples(index=False):
+                        found = scan_symbol(item.Symbol, item.Name, index_prices[item.Symbol], index_cfg)
+                        if found:
+                            found["Exchange"] = item.Exchange
+                            found["Category"] = item.Category
+                            index_rows.append(found)
+                    index_results = pd.DataFrame(index_rows)
+                    st.session_state["index_scan_results"] = index_results
+                    st.session_state["index_scan_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
+                    st.session_state["index_scan_errors"] = index_errors
+                if index_results.empty:
+                    answer = (
+                        f"उपलब्ध Yahoo Finance index data में कोई CRT stage नहीं मिला। "
+                        f"जाँचे गए indices: {len(index_scan_rows)}; data unavailable: {len(index_errors)}. "
+                        "यह live intraday data नहीं, उपलब्ध Daily candles पर आधारित scan है।"
+                    )
+                else:
+                    cols = [c for c in ["Symbol", "Name", "Setup", "Bias", "LTP", "Entry", "SL", "Target (M1 Monthly H/L)", "Stage", "Setup Reason", "Last Candle"] if c in index_results.columns]
+                    index_results = index_results.sort_values(
+                        by=["Stage", "Symbol"] if "Stage" in index_results.columns else ["Symbol"]
+                    )
+                    answer = (
+                        f"**Indian Index CRT Scan: {st.session_state['index_scan_time']}**\\n\\n"
+                        f"जाँचे गए indices: {len(index_scan_rows)} · Data errors: {len(index_errors)}\\n\\n"
+                        + index_results[cols].to_markdown(index=False)
+                        + "\\n\\nकेवल उपलब्ध Yahoo Finance Daily data का विश्लेषण है; यह live tick signal नहीं है।"
+                    )
+            except Exception as exc:
+                answer = f"Index scan पूरा नहीं हो सका: {type(exc).__name__}: {str(exc)[:300]}"
+        elif direct_stock_lookup:
             if not isinstance(scan_df, pd.DataFrame):
                 answer = "अभी Scanner का कोई परिणाम उपलब्ध नहीं है। पहले **CRT Scanner** टैब में Market Universe चुनकर **Scan market** चलाएँ। Scan पूरा होने के बाद AI Assistant में फिर पूछें—मैं उसी scan के BUY/SELL और waiting setups खोजकर बताऊँगा।"
             elif scan_df.empty:
