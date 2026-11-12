@@ -258,6 +258,78 @@ def calculate_metrics(trades: list[dict[str, Any]], initial_capital: float) -> d
     }
 
 
+
+def calculate_points_metrics(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    """Strategy-only results in NIFTY index points; no quantity or capital sizing."""
+    frame = pd.DataFrame(candidates)
+    if frame.empty:
+        return {
+            "total_trades": 0, "wins": 0, "losses": 0, "ambiguous": 0,
+            "open": 0, "win_rate": 0.0, "profit_factor": 0.0,
+            "net_points": 0.0, "gross_profit_points": 0.0,
+            "gross_loss_points": 0.0, "max_drawdown_points": 0.0,
+        }
+    frame["Points"] = frame.apply(
+        lambda row: int(row["_direction"]) *
+        (float(row["Exit Reference"]) - float(row["Entry Reference"])), axis=1
+    )
+    closed = frame[frame["Outcome"] != "OPEN"]
+    ambiguous = closed[closed["Outcome"].astype(str).str.startswith("AMBIGUOUS")]
+    decisive = closed[~closed["Outcome"].astype(str).str.startswith("AMBIGUOUS")]
+    wins = decisive[decisive["Points"] > 0]
+    losses = decisive[decisive["Points"] <= 0]
+    gross_profit = float(closed["Points"].clip(lower=0).sum())
+    gross_loss = float(abs(closed["Points"].clip(upper=0).sum()))
+    daily = closed.groupby("Exit Date")["Points"].sum().sort_index()
+    equity = daily.cumsum()
+    peak = equity.cummax().clip(lower=0)
+    drawdown = peak - equity
+    decisive_count = len(wins) + len(losses)
+    return {
+        "total_trades": len(frame),
+        "wins": len(wins), "losses": len(losses),
+        "ambiguous": len(ambiguous),
+        "open": int((frame["Outcome"] == "OPEN").sum()),
+        "win_rate": len(wins) / decisive_count * 100.0 if decisive_count else 0.0,
+        "profit_factor": gross_profit / gross_loss if gross_loss else (float("inf") if gross_profit else 0.0),
+        "net_points": float(closed["Points"].sum()),
+        "gross_profit_points": gross_profit,
+        "gross_loss_points": gross_loss,
+        "max_drawdown_points": float(drawdown.max()) if not drawdown.empty else 0.0,
+    }
+
+
+def build_yearly_points_report(candidates: list[dict[str, Any]]) -> pd.DataFrame:
+    """Entry-year breakdown; open and ambiguous trades remain separately visible."""
+    frame = pd.DataFrame(candidates)
+    columns = ["Year", "Trades", "Wins", "Losses", "Ambiguous", "Open",
+               "Win Rate %", "Net Points", "Profit Factor"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    frame["Year"] = pd.to_datetime(frame["Entry Date"]).dt.year
+    frame["Points"] = frame.apply(
+        lambda row: int(row["_direction"]) *
+        (float(row["Exit Reference"]) - float(row["Entry Reference"])), axis=1
+    )
+    rows = []
+    for year, group in frame.groupby("Year"):
+        closed = group[group["Outcome"] != "OPEN"]
+        ambiguous = closed[closed["Outcome"].astype(str).str.startswith("AMBIGUOUS")]
+        decisive = closed[~closed["Outcome"].astype(str).str.startswith("AMBIGUOUS")]
+        wins = decisive[decisive["Points"] > 0]
+        losses = decisive[decisive["Points"] <= 0]
+        gp = float(closed["Points"].clip(lower=0).sum())
+        gl = float(abs(closed["Points"].clip(upper=0).sum()))
+        rows.append({
+            "Year": int(year), "Trades": len(group), "Wins": len(wins),
+            "Losses": len(losses), "Ambiguous": len(ambiguous),
+            "Open": int((group["Outcome"] == "OPEN").sum()),
+            "Win Rate %": len(wins) / (len(wins) + len(losses)) * 100.0 if len(wins) + len(losses) else 0.0,
+            "Net Points": float(closed["Points"].sum()),
+            "Profit Factor": gp / gl if gl else (float("inf") if gp else 0.0),
+        })
+    return pd.DataFrame(rows, columns=columns)
+
 def run_backtest(
     price_map: dict[str, pd.DataFrame],
     names: dict[str, str] | None = None,
@@ -326,17 +398,31 @@ def run_backtest(
         if progress_callback:
             progress_callback(symbol_number, total, symbol)
 
-    allocated = _allocate_candidates(candidates, cfg)
-    metrics = calculate_metrics(allocated, cfg.initial_capital)
-    trades_frame = pd.DataFrame(allocated)
+    # Primary strategy report: every valid CRT setup, independent of capital sizing
+    # and overlapping-position restrictions. Results are in raw index points.
+    point_metrics = calculate_points_metrics(candidates)
+    point_trades = [dict(t) for t in candidates]
+    for trade in point_trades:
+        trade["Points"] = int(trade["_direction"]) * (
+            float(trade["Exit Reference"]) - float(trade["Entry Reference"])
+        )
+        # The ML label is one-index-unit outcome, not rupee P&L or futures sizing.
+        trade["Net P&L"] = trade["Points"]
+    trades_frame = pd.DataFrame(point_trades)
     if not trades_frame.empty:
         trades_frame = trades_frame.drop(columns=["_direction", "Entry Index", "Exit Index"], errors="ignore")
         trades_frame = trades_frame.sort_values(["Entry Date", "Symbol"]).reset_index(drop=True)
+
+    # Retain the former capital/risk sizing model as a clearly secondary illustration.
+    allocated = _allocate_candidates(candidates, cfg)
+    portfolio_metrics = calculate_metrics(allocated, cfg.initial_capital)
     curve = _equity_curve(allocated, cfg.initial_capital)
     return {
         "trades": trades_frame,
         "equity_curve": curve,
-        "metrics": metrics,
+        "metrics": point_metrics,
+        "portfolio_metrics": portfolio_metrics,
+        "yearly_points": build_yearly_points_report(candidates),
         "errors": errors,
         "candidate_count": len(candidates),
         "config": cfg,
