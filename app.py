@@ -502,7 +502,7 @@ with scanner_tab:
 
 with backtest_tab:
      st.subheader("📈 Historical CRT Backtest")
-     st.caption("BSE EQ universe · 5 years of Yahoo Finance Daily OHLC · Existing Monthly-Daily CRT rules unchanged.")
+     st.caption("All India stock + mapped index universe · 5 years of Yahoo Finance Daily OHLC · Existing Monthly-Daily CRT rules unchanged.")
      st.info(
          "No-look-ahead पद्धति: हर ऐतिहासिक तारीख पर scanner को केवल उस तारीख तक की candles दी जाती हैं। "
          "Entry confirmation के बाद की candles ही SL/Target exit जाँचने में उपयोग होती हैं। "
@@ -519,22 +519,22 @@ with backtest_tab:
      with b4:
          bt_slippage = st.number_input("Slippage (bps / side)", min_value=0.0, max_value=100.0, value=5.0, step=1.0, key="bt_slippage")
      st.caption("Default cost assumption: 12 bps charges + 5 bps slippage on each side. Adjust these to your broker and execution conditions.")
-     run_bt = st.button("▶️ Run 5-Year BSE Backtest", type="primary", key="run_bse_backtest")
+     run_bt = st.button("▶️ Run 5-Year Full-Market Backtest", type="primary", key="run_bse_backtest")
      if run_bt:
          try:
-             with st.spinner("BSE listed equity universe लोड हो रहा है..."):
-                 bse_universe = make_universe("All BSE EQ stocks")
+             with st.spinner("All India stock + index universe लोड हो रहा है..."):
+                 bse_universe = make_universe("All India stocks + indices")
              bse_universe = bse_universe[
                  bse_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
              ].drop_duplicates(subset=["Symbol"]).copy()
              if bse_universe.empty:
-                 st.error("BSE EQ universe उपलब्ध नहीं है। BSE security master जाँचें।")
+                 st.error("All India stock/index universe उपलब्ध नहीं है। NSE/BSE security masters जाँचें।")
                  st.stop()
-             st.write(f"BSE EQ securities in current exchange master: **{len(bse_universe):,}**")
+             st.write(f"Current India stock/index symbols in exchange masters: **{len(bse_universe):,}**")
              bt_progress = st.progress(0.0, text="Downloading 5-year daily OHLC...")
              bt_status = st.empty()
              symbols = bse_universe["Symbol"].tolist()
-             bt_cache_key = ("BSE", "5y", tuple(symbols))
+             bt_cache_key = ("ALL_INDIA_STOCKS_INDICES", "5y", tuple(symbols))
              cached = st.session_state.get("_bse_backtest_data")
              if cached and cached.get("key") == bt_cache_key:
                  bt_prices, bt_errors = cached["prices"], cached["errors"]
@@ -612,7 +612,7 @@ with backtest_tab:
          else:
              st.warning(ensemble_report.get("message", "इस backtest में AI training के लिए पर्याप्त closed WIN/LOSS trades नहीं हैं."))
          st.caption(
-             f"Universe: {meta.get('universe_count', 0):,} current BSE EQ listings · "
+             f"Universe: {meta.get('universe_count', 0):,} current India stock/index listings · "
              f"Data received: {meta.get('data_count', 0):,} · "
              f"Download errors: {meta.get('download_errors', 0):,} · "
              f"Candidates found: {bt.get('candidate_count', 0):,}"
@@ -668,7 +668,7 @@ with backtest_tab:
                  err_df = pd.DataFrame([{"Symbol": s, "Reason": e} for s, e in bt["errors"].items()])
                  st.dataframe(err_df, use_container_width=True, hide_index=True)
          st.warning(
-             "महत्वपूर्ण सीमाएँ: universe आज के BSE EQ master पर आधारित है, इसलिए delisted stocks और historical constituent changes शामिल नहीं हैं (survivorship bias). "
+             "महत्वपूर्ण सीमाएँ: universe आज के NSE/BSE exchange masters और mapped indices पर आधारित है, इसलिए delisted stocks और historical constituent changes शामिल नहीं हैं (survivorship bias). "
              "Yahoo Finance BSE data अधूरा/adjusted/अनुपलब्ध हो सकता है। Charges अनुमानित bps हैं, वास्तविक contract-note taxes नहीं। "
              "Equity curve realised exits पर आधारित है; intraday mark-to-market नहीं।"
          )
