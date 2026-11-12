@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from data_fetch import download_market_data
+from dhan_instruments import download_dhan_instrument_master
+from dhan_scanner import download_dhan_market_data
 from scanner import ScanConfig, scan_symbol
 from universe import make_universe
 
@@ -22,6 +25,7 @@ with st.sidebar:
         index=0,
         help="All Stocks: NSE main-board EQ shares. BSE duplicate listings and SME scrips are excluded to keep the scan fast. All Index: only indices with a Yahoo Finance ticker mapping.",
     )
+    data_source = st.selectbox("Market data source", ["Yahoo Finance", "DhanHQ"], index=0)
     history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=0)
     st.divider()
     st.subheader("Strategy")
@@ -30,10 +34,10 @@ with st.sidebar:
     entry_valid_days = st.number_input("Entry valid (daily candles)", min_value=1, max_value=10, value=3)
     only_setup = st.checkbox("Show only active, confirmed entries (target not hit)", value=False, help="बंद रखने पर Waiting CHoCH, Waiting FVG/Retest और completed setups भी दिखेंगे।")
     st.divider()
-    st.caption(
-        "Data source: Yahoo Finance via yfinance. This is an unofficial source; prices can be delayed, "
-        "incomplete, or unavailable. The scanner is read-only and does not place orders."
-    )
+    if data_source == "DhanHQ":
+        st.caption("DhanHQ: NSE cash-equity daily historical candles. Requires an active Data API subscription and a valid access token. Full-market scans can take several minutes.")
+    else:
+        st.caption("Yahoo Finance via yfinance is unofficial; prices can be delayed, incomplete, or unavailable. The scanner is read-only and does not place orders.")
 
 col_a, col_b = st.columns([1, 4])
 with col_a:
@@ -55,6 +59,9 @@ if refresh:
     try:
         with st.spinner(f"Loading {universe_mode} universe..."):
             universe = _load_universe(universe_mode)
+        if data_source == "DhanHQ" and universe_mode == "All Index":
+            st.error("DhanHQ integration in this phase supports NSE cash equities only. Select All Stocks; index and BSE instruments are not mapped yet.")
+            st.stop()
         if universe.empty:
             st.error("इस चयन के लिए कोई symbol नहीं मिला। NSE/BSE master या symbol spelling जाँचें।")
             st.stop()
@@ -62,7 +69,7 @@ if refresh:
         downloadable = universe[universe["Symbol"].fillna("").astype(str).str.strip().ne("")].copy()
         st.info(
             f"Selected universe में {len(downloadable):,} symbols हैं। "
-            "जिन symbols का Yahoo Finance OHLC data उपलब्ध नहीं होगा, वे Data Errors में दिखेंगे."
+            ("DhanHQ per-symbol historical requests होंगे; full NSE scan में कई मिनट लग सकते हैं।" if data_source == "DhanHQ" else "जिन symbols का Yahoo Finance OHLC data उपलब्ध नहीं होगा, वे Data Errors में दिखेंगे.")
         )
         progress = st.progress(0.0, text="Preparing data download...")
         status = st.empty()
@@ -82,7 +89,7 @@ if refresh:
         # the same universe/history after changing filters or strategy settings
         # should not download thousands of candles again.
         requested_symbols = downloadable["Symbol"].drop_duplicates().tolist()
-        download_key = (universe_mode, history_period, tuple(requested_symbols))
+        download_key = (data_source, universe_mode, history_period, tuple(requested_symbols))
         cached_download = st.session_state.get("_market_download_cache")
         if cached_download and cached_download.get("key") == download_key:
             price_map = cached_download["price_map"]
@@ -90,12 +97,36 @@ if refresh:
             progress.progress(1.0, text=f"Reusing {len(price_map):,} cached symbols")
             status.caption("Using the previously downloaded market data in this session.")
         else:
-            price_map, errors = download_market_data(
-                requested_symbols,
-                period=history_period,
-                batch_size=80,
-                progress_callback=update_progress,
-            )
+            if data_source == "DhanHQ":
+                access_token = os.getenv("DHAN_ACCESS_TOKEN", "").strip()
+                try:
+                    access_token = access_token or str(st.secrets["brokers"]["dhan"]["access_token"]).strip()
+                except Exception:
+                    pass
+                if not access_token:
+                    st.error("Dhan access token नहीं मिला। Streamlit Secrets में [brokers.dhan] access_token या DHAN_ACCESS_TOKEN environment variable सेट करें।")
+                    st.stop()
+
+                @st.cache_data(ttl=86400, show_spinner=False)
+                def _load_dhan_master() -> pd.DataFrame:
+                    return download_dhan_instrument_master()
+
+                with st.spinner("Downloading / loading official Dhan instrument master..."):
+                    instrument_master = _load_dhan_master()
+                price_map, errors = download_dhan_market_data(
+                    requested_symbols,
+                    period=history_period,
+                    access_token=access_token,
+                    instrument_master=instrument_master,
+                    progress_callback=update_progress,
+                )
+            else:
+                price_map, errors = download_market_data(
+                    requested_symbols,
+                    period=history_period,
+                    batch_size=80,
+                    progress_callback=update_progress,
+                )
             st.session_state["_market_download_cache"] = {
                 "key": download_key,
                 "price_map": price_map,
@@ -131,6 +162,7 @@ if refresh:
         st.session_state["scan_data_count"] = len(price_map)
         st.session_state["scan_error_count"] = len(errors)
         st.session_state["scan_errors"] = errors
+        st.session_state["scan_data_source"] = data_source
         st.session_state["scan_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
         st.rerun()
     except Exception as exc:
@@ -171,7 +203,7 @@ if "scan_results" in st.session_state:
     n5.metric("Target Hit Before Entry", f"{target_passed_count:,}")
     n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
     st.metric("Missed / Stale Entry (not a fresh signal)", f"{missed_entry_count:,}")
-    st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
+    st.caption(f"Source: {st.session_state.get('scan_data_source', 'Yahoo Finance')} · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
     latest_daily_date = (
         pd.to_datetime(results["Last Candle"], errors="coerce").max()
         if not results.empty and "Last Candle" in results.columns else pd.NaT
@@ -182,7 +214,7 @@ if "scan_results" in st.session_state:
     )
     st.caption(
         f"Latest received Daily candle: {latest_daily_label} · "
-        "LTP is the latest downloaded Daily close, not a live intraday quote. "
+        "Displayed price is the latest downloaded Daily close, not a live intraday quote. "
         "Compare the Last Candle date with TradingView before interpreting a setup."
     )
 
@@ -445,5 +477,5 @@ else:
 st.divider()
 st.caption(
     "Read-only technical scanner: कोई order place नहीं होता और यह investment advice नहीं है। "
-    "Yahoo Finance data unofficial है; Entry/SL/Targets को broker chart पर verify करें।"
+    "Market data source terms and candle dates vary; Entry/SL/Targets को broker chart पर verify करें।"
 )
