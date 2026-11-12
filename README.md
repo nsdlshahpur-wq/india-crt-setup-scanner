@@ -95,3 +95,13 @@ GEMINI_API_KEY = "your-gemini-api-key"
 Do not commit API keys to GitHub. If a key has been exposed in chat, screenshots,
 or source control, revoke it and create a replacement. The assistant uses
 `gemini-2.5-flash`; it explains scanner/backtest data and does not execute trades.
+
+
+## Daily CRT Hybrid AI (development branch)
+
+- Optional Streamlit page: `pages/3_CRT_AI_Lab.py` on branch `feature/crt-daily-hybrid-ai`.
+- Loads public NIFTY50 1-minute history and rebuilds Daily OHLC candles for the existing Monthly-Daily CRT scanner/backtest.
+- Random Forest estimates the probability of a positive net outcome for a fresh, confirmed Daily CRT entry. Labels use completed WIN/LOSS trades after modeled costs; ambiguous and open trades are excluded.
+- Entry-time features include direction, stop/target distance, reward-to-risk, entry-zone type, M1 range, sweep depth, CHoCH distance and zone width. No future exit fields are used as model inputs.
+- Evaluation uses a chronological 75/25 train/test split. The deployable model is then refit on all eligible labelled trades. At least 30 decisive trades and 8 examples of each outcome are required; otherwise the page reports insufficient data.
+- Research estimate only, not a calibrated guarantee or an order signal. Validate out-of-sample and in paper trading before relying on it.
