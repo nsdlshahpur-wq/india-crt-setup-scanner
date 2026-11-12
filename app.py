@@ -16,6 +16,7 @@ from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from crt_ai import train_crt_model, score_crt_signals
 from multi_ai import run_multi_ai_consensus, configured_providers
+from crt_copilot import get_market_pulse, run_copilot
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -789,6 +790,76 @@ CLOUDFLARE_ACCOUNT_ID = "..."''', language="toml")
         st.markdown("- [Google AI Studio](https://aistudio.google.com/app/apikey) · [Groq Console](https://console.groq.com/keys) · [Mistral Console](https://console.mistral.ai/)\n- [OpenRouter Keys](https://openrouter.ai/keys) · [Cloudflare AI](https://dash.cloudflare.com/)")
         st.caption("Free tiers पर daily/rate limits लागू हैं। Cloudflare के लिए API Token और Account ID दोनों चाहिए। मॉडल ID providers के अनुसार बदल सकते हैं; जरूरत पर *_CRT_MODEL secret से बदले जा सकते हैं।")
         st.warning("Gemini और अन्य free providers की data-use शर्तें पढ़ें। केवल public market data भेजा जाता है; API keys कभी scanner output में नहीं दिखतीं।")
+
+    st.divider()
+    st.header("🧠 CRT AI Trading Copilot")
+    st.caption("पाँच AI आपके CRT नियमों, Daily index/sector data, scanner setups और ताज़ा market headlines को मिलाकर अलग-अलग research opinions देंगे।")
+    copilot_question = st.text_area(
+        "AI Bot से क्या जानना चाहते हैं?",
+        value="आज भारतीय शेयर बाजार का पूरा विश्लेषण कीजिए। NIFTY, BANK NIFTY, SENSEX, सेक्टर ट्रेंड, बाजार की मजबूती/कमजोरी और मेरे Daily CRT Scanner के confirmed तथा waiting setups का विश्लेषण करके बताइए कि किन setups को avoid करना चाहिए और किस confirmation का इंतजार करना चाहिए।",
+        height=115,
+        key="crt_copilot_question",
+    )
+    run_copilot_now = st.button("🚀 Market Pulse + पाँच AI Analysis चलाएँ", type="primary", key="run_crt_copilot")
+    if run_copilot_now:
+        with st.spinner("Daily index data और market headlines जुटाए जा रहे हैं..."):
+            pulse = get_market_pulse()
+        st.session_state["crt_copilot_pulse"] = pulse
+        copilot_context = {
+            "market_pulse": pulse,
+            "scan_time": st.session_state.get("scan_time", "No full-market scan in this session"),
+            "scanner_results": (
+                st.session_state["scan_results"].head(30).to_dict(orient="records")
+                if isinstance(st.session_state.get("scan_results"), pd.DataFrame) else []
+            ),
+            "backtest_metrics": (
+                st.session_state.get("bse_backtest_result", {}).get("metrics", {})
+                if isinstance(st.session_state.get("bse_backtest_result"), dict) else {}
+            ),
+            "existing_ml_validation": st.session_state.get("crt_ensemble_report", {}),
+            "important_limit": "Daily OHLC only, not live tick data. Headlines are RSS titles; no article body was verified. Never invent missing facts.",
+        }
+        try:
+            copilot_secrets = {key: str(st.secrets.get(key, "")) for key in [
+                "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+                "OPENROUTER_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
+                "GEMINI_CRT_MODEL", "GROQ_CRT_MODEL", "MISTRAL_CRT_MODEL",
+                "OPENROUTER_CRT_MODEL", "CLOUDFLARE_CRT_MODEL",
+            ]}
+        except Exception:
+            copilot_secrets = {}
+        with st.spinner("पाँचों AI आपके सवाल और market data का स्वतंत्र विश्लेषण कर रहे हैं..."):
+            st.session_state["crt_copilot_result"] = run_copilot(
+                copilot_question,
+                pd.Series(copilot_context).to_json(force_ascii=False, date_format="iso"),
+                copilot_secrets,
+            )
+    if "crt_copilot_pulse" in st.session_state:
+        pulse = st.session_state["crt_copilot_pulse"]
+        st.subheader("🇮🇳 Indian Market Pulse")
+        st.dataframe(pd.DataFrame(pulse.get("indices", [])), use_container_width=True, hide_index=True)
+        headlines = pulse.get("news", [])
+        if headlines:
+            with st.expander("ताज़ा Market Headlines", expanded=False):
+                for item in headlines:
+                    if item.get("source_link"):
+                        st.markdown(f"- [{item.get('headline','')} ]({item['source_link']})")
+                    else:
+                        st.write(item.get("headline", ""))
+        st.caption("Source: " + pulse.get("data_source", ""))
+    if "crt_copilot_result" in st.session_state:
+        copilot_result = st.session_state["crt_copilot_result"]
+        st.write(f"AI responses: {copilot_result.get('success_count', 0)}/5 · Configured: {copilot_result.get('configured_count', 0)}/5")
+        for provider, detail in copilot_result.get("providers", {}).items():
+            with st.expander(f"{provider} · {detail.get('status', 'unknown')}", expanded=detail.get("status") == "ok"):
+                if detail.get("status") == "ok":
+                    st.caption("Model: " + detail.get("model", ""))
+                    st.markdown(detail.get("answer", ""))
+                elif detail.get("status") == "error":
+                    st.warning(detail.get("error", "Provider unavailable"))
+                else:
+                    st.info("इस AI की API Key अभी configure नहीं है।")
+        st.warning("पाँच AI की राय research सहायता है, trade execution या guaranteed prediction नहीं। Market pulse Yahoo Finance के आखिरी उपलब्ध Daily close पर आधारित है; News केवल headline feed है। वास्तविक Entry से पहले अपने chart पर candle confirmation जाँचें।")
 
     def _get_gemini_key():
         key = os.getenv("GEMINI_API_KEY", "").strip()
