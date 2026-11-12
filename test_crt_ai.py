@@ -25,3 +25,26 @@ from crt_ai import _zones
 def test_zone_flags_do_not_overlap():
     flags = _zones("IFVG+BOB")
     assert flags == {"zone_fvg": 0.0, "zone_ifvg": 1.0, "zone_ob": 0.0, "zone_bob": 1.0}
+
+
+def test_three_model_ensemble_trains_and_scores():
+    rows = []
+    for i in range(90):
+        long_side = i % 2 == 0
+        won = (i % 3 != 0)
+        entry = 100.0 + (i % 11)
+        rows.append({
+            "Symbol": f"S{i % 7}", "Entry Date": (pd.Timestamp("2020-01-01") + pd.Timedelta(days=i * 7)).date().isoformat(),
+            "Outcome": "WIN" if won else "LOSS", "Net P&L": 150.0 if won else -100.0,
+            "Direction": "LONG" if long_side else "SHORT", "Entry Reference": entry,
+            "Stop Loss": entry * (0.97 if long_side else 1.03),
+            "Target": entry * (1.06 if long_side else 0.94),
+            "Entry Zone": ["FVG", "IFVG", "OB", "BOB"][i % 4],
+            "M1 Range %": 4.0 + (i % 5), "Sweep Depth %": 0.5 + (i % 4) / 10,
+            "CHoCH Distance %": 0.4 + (i % 6) / 10, "Zone Width %": 0.2 + (i % 3) / 10,
+        })
+    result = train_crt_model(pd.DataFrame(rows))
+    assert result.model is not None
+    assert len(result.report["model_names"]) == 3
+    assert set(result.report["individual_models"]) == set(result.report["model_names"])
+    assert 0.0 <= result.report["accuracy"] <= 1.0
