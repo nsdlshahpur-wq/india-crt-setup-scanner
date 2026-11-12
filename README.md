@@ -17,7 +17,7 @@ The app navigation intentionally contains only **app**. The separate Monthly-Dai
 
 These are explicit mechanical OHLC rules. They may differ from discretionary chart interpretations and do not guarantee profitable signals.
 
-## Historical backtesting
+## Historical backtesting and reproducibility
 
 - Backtest universe: current BSE EQ scrip master (Yahoo Finance `.BO` tickers where data is available).
 - Default test request: 5 years of Daily OHLC, ₹100,000 starting capital, 1% equity risk per trade.
