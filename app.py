@@ -36,9 +36,9 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
- scanner_tab, backtest_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest"]) 
+scanner_tab, backtest_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest"]) 
 
- with scanner_tab:
+with scanner_tab:
     col_a, col_b = st.columns([1, 4])
     with col_a:
         refresh = st.button("🔄 Scan market", type="primary", use_container_width=True)
@@ -487,7 +487,7 @@ with st.sidebar:
         )
     
 
- with backtest_tab:
+with backtest_tab:
      st.subheader("📈 Historical CRT Backtest")
      st.caption("BSE EQ universe · 5 years of Yahoo Finance Daily OHLC · Existing Monthly-Daily CRT rules unchanged.")
      st.info(
