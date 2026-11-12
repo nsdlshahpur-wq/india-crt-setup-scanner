@@ -260,8 +260,8 @@ def run_backtest(
         now = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata"))
         if not data.empty and data.index[-1].date() == now.date() and now.time() < dtime(15, 40):
             data = data.iloc[:-1]
-        if len(data) < 81:
-            errors[symbol] = "Insufficient daily history (need at least 81 bars including warm-up)."
+        if len(data) < 80
+            errors[symbol] = "Insufficient daily history (need at least 80 bars including warm-up)."
             if progress_callback:
                 progress_callback(symbol_number, total, symbol)
             continue
@@ -271,7 +271,7 @@ def run_backtest(
         # No-look-ahead: scanner receives a prefix ending exactly on the day being tested.
         # Monthly M1/M2 context is fixed during M3, so compute it once per month and
         # skip daily CHoCH/zone scans in months that cannot possibly form a CRT setup.
-        for asof_index in range(79, len(data) - 1):
+        for asof_index in range(79, len(data)):
             prefix_start = max(0, asof_index - max(160, int(cfg.max_prefix_bars)) + 1)
             prefix = data.iloc[prefix_start : asof_index + 1]
             month_key = data.index[asof_index].to_period("M")
