@@ -648,19 +648,19 @@ with ai_tab:
     st.header("🤖 CRT AI Assistant")
     st.caption("अपने CRT Scanner, BUY/SELL setups, Backtest और risk management के बारे में हिंदी में सवाल पूछें। AI केवल उपलब्ध app-data के आधार पर समझाएगा; यह trading execution नहीं करता।")
 
-    def _get_openai_key():
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+    def _get_gemini_key():
+        key = os.getenv("GEMINI_API_KEY", "").strip()
         if not key:
             try:
-                key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
+                key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
             except Exception:
                 key = ""
         return key
 
-    ai_key = _get_openai_key()
-    if not ai_key:
-        st.warning("AI Assistant चालू करने के लिए Streamlit Secrets में OPENAI_API_KEY जोड़ें। GitHub repository में API key commit न करें।")
-        st.code('OPENAI_API_KEY = "your-api-key"', language="toml")
+    gemini_key = _get_gemini_key()
+    if not gemini_key:
+        st.warning("Gemini AI Assistant चालू करने के लिए Streamlit Secrets में GEMINI_API_KEY जोड़ें। GitHub repository में API key commit न करें।")
+        st.code('GEMINI_API_KEY = "your-gemini-api-key"', language="toml")
         st.caption("Streamlit Cloud: App → Settings → Secrets में यह secret जोड़ें, फिर app reboot करें।")
 
     # Provide compact, factual context from the current session only.
@@ -693,13 +693,13 @@ with ai_tab:
         st.session_state["crt_ai_messages"].append({"role": "user", "content": question})
         with st.chat_message("user"):
             st.markdown(question)
-        if not ai_key:
-            answer = "AI API key सेट नहीं है। Streamlit Secrets में OPENAI_API_KEY जोड़ने के बाद फिर प्रश्न पूछें।"
+        if not gemini_key:
+            answer = "Gemini API key सेट नहीं है। Streamlit Secrets में GEMINI_API_KEY जोड़ने के बाद फिर प्रश्न पूछें।"
         else:
             history = st.session_state["crt_ai_messages"][-12:]
             payload = {
-                "model": "gpt-4.1-mini",
-                "input": [
+                "model": "gemini-2.5-flash",
+                "messages": [
                     {
                         "role": "system",
                         "content": (
@@ -716,25 +716,18 @@ with ai_tab:
                     },
                     *[{"role": m["role"], "content": m["content"]} for m in history],
                 ],
-                "max_output_tokens": 900,
+                "max_tokens": 900,
             }
             try:
                 response = requests.post(
-                    "https://api.openai.com/v1/responses",
-                    headers={"Authorization": f"Bearer {ai_key}", "Content-Type": "application/json"},
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    headers={"Authorization": f"Bearer {gemini_key}", "Content-Type": "application/json"},
                     json=payload,
                     timeout=45,
                 )
                 response.raise_for_status()
                 body = response.json()
-                answer_parts = [
-                    item.get("text", "")
-                    for item in body.get("output", [])
-                    if item.get("type") == "message"
-                    for item in item.get("content", [])
-                    if item.get("type") == "output_text"
-                ]
-                answer = "\n".join(answer_parts).strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
+                answer = body.get("choices", [{}])[0].get("message", {}).get("content", "").strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
             except Exception as exc:
                 answer = f"AI सेवा से उत्तर नहीं मिला: {type(exc).__name__}: {str(exc)[:240]}"
         st.session_state["crt_ai_messages"].append({"role": "assistant", "content": answer})
