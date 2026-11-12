@@ -144,7 +144,7 @@ def main() -> int:
     ]
     for item in fresh[:30]:
         lines.extend([
-            f"{item['setup']} | {item['symbol']} — {item['name']}",
+            f"{item['setup']} | {item['symbol']} — {item['name']} ({item['exchange']})",
             f"Entry ₹{item['entry']:.2f} | SL ₹{item['sl']:.2f} | M1 Target ₹{item['target']:.2f}",
             f"Zone: {item['zone']} | Candle: {item['last_candle']}",
             "",
