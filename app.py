@@ -200,8 +200,9 @@ if "scan_results" in st.session_state:
         preferred = [
             "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
             "Target (M1 Monthly H/L)", "Target Status", "Entry Status", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
-            "M2 Close", "M3 Month", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
-            "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
+            "M2 Close", "M3 Month", "Sweep Type", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
+            "CHoCH Date", "CHoCH Rule", "Entry Date", "Entry Confirmation Rule", "Entry Zone Type",
+            "Zone Low", "Zone High", "Setup Reason", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]].copy()
 
@@ -375,6 +376,13 @@ if "scan_results" in st.session_state:
                 match = results[results["Symbol"] == chart_symbol] if not results.empty else pd.DataFrame()
                 if not match.empty:
                     setup_row = match.iloc[0]
+                    with st.expander("🧠 यह CRT Setup क्यों बना?"):
+                        st.write(f"**Monthly Status:** {setup_row.get('Monthly Status', 'N/A')}")
+                        st.write(f"**Liquidity Sweep:** {setup_row.get('Sweep Type', 'N/A')} · {setup_row.get('Sweep Date', 'N/A')}")
+                        st.write(f"**CHoCH:** {setup_row.get('CHoCH Rule', 'N/A')} · {setup_row.get('CHoCH Date', 'N/A')}")
+                        st.write(f"**Entry Logic:** {setup_row.get('Entry Confirmation Rule', 'N/A')}")
+                        st.write(f"**Reason:** {setup_row.get('Setup Reason', 'N/A')}")
+                        st.caption("यह नियम-आधारित OHLC व्याख्या है; TradingView के discretionary markings से हर स्थिति में समान होना जरूरी नहीं।")
                     levels = [
                         ("M1 High", setup_row.get("M1 High"), "gray", "dash"),
                         ("M1 Low", setup_row.get("M1 Low"), "gray", "dash"),
