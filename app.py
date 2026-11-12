@@ -308,7 +308,7 @@ with scanner_tab:
                     ]
                     with st.expander("🧩 TradingView पर CRT Entry / SL / Target lines लगाएँ"):
                         st.write("नीचे Pine Script copy करें, TradingView के Pine Editor में paste करके **Add to chart** दबाएँ। यह चुने हुए setup के levels दिखाएगा।")
-                        st.code("\\n".join(pine_lines), language="pine")
+                        st.code("\n".join(pine_lines), language="pine")
                 except (IndexError, KeyError, ValueError):
                     st.info("TradingView link बनाने के लिए पहले setup row select करें।")
             csv = view.to_csv(index=False).encode("utf-8-sig")
@@ -711,7 +711,7 @@ with ai_tab:
                             "survivorship bias, Yahoo data limitations and risk. Do not promise profits, "
                             "give personalized financial advice, or place/claim to place trades. "
                             "If context lacks a requested fact, say so and ask the user to run the scan/backtest. "
-                            "\\n\\nCURRENT APP CONTEXT:\\n" + "\\n".join(context_parts)
+                            "\n\nCURRENT APP CONTEXT:\n" + "\n".join(context_parts)
                         )
                     },
                     *[{"role": m["role"], "content": m["content"]} for m in history],
@@ -734,7 +734,7 @@ with ai_tab:
                     for item in item.get("content", [])
                     if item.get("type") == "output_text"
                 ]
-                answer = "\\n".join(answer_parts).strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
+                answer = "\n".join(answer_parts).strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
             except Exception as exc:
                 answer = f"AI सेवा से उत्तर नहीं मिला: {type(exc).__name__}: {str(exc)[:240]}"
         st.session_state["crt_ai_messages"].append({"role": "assistant", "content": answer})
