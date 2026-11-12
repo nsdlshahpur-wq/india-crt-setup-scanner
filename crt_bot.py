@@ -80,6 +80,15 @@ def save_state(seen: set[str]) -> None:
     STATE_PATH.write_text(json.dumps(sorted(seen), indent=2), encoding="utf-8")
 
 
+def build_bot_universe() -> pd.DataFrame:
+    """Combine the NIFTY 50 index itself with the BSE EQ equity universe."""
+    nifty50 = make_universe("Custom symbols", "NIFTY 50")
+    bse_equities = make_universe("All BSE EQ stocks")
+    combined = pd.concat([nifty50, bse_equities], ignore_index=True)
+    combined = combined[combined["Symbol"].astype(str).str.strip().ne("")]
+    return combined.drop_duplicates(subset=["Symbol"]).reset_index(drop=True)
+
+
 def main() -> int:
     now = datetime.now(IST)
     # Run on weekdays only; GitHub Actions cron is UTC and may be delayed.
@@ -87,12 +96,11 @@ def main() -> int:
         print("Weekend: no market scan.")
         return 0
 
-    universe = make_universe("All BSE EQ stocks")
+    universe = build_bot_universe()
     if universe.empty:
-        raise RuntimeError("BSE EQ universe is empty")
-    universe = universe[universe["Symbol"].astype(str).str.strip().ne("")]
+        raise RuntimeError("NIFTY 50 + BSE equity universe is empty")
     symbols = universe["Symbol"].drop_duplicates().tolist()
-    print(f"Scanning {len(symbols)} BSE EQ symbols at {now.isoformat()}")
+    print(f"Scanning NIFTY 50 index + {len(symbols) - 1} BSE EQ symbols at {now.isoformat()}")
 
     price_map, errors = download_market_data(symbols, period="1y", batch_size=80)
     cfg = ScanConfig()
@@ -112,7 +120,7 @@ def main() -> int:
         fresh.append({
             "symbol": row.Symbol,
             "name": row.Name,
-            "exchange": "BSE",
+            "exchange": str(getattr(row, "Exchange", "Unknown")),
             "setup": result.get("Setup"),
             "last_candle": last_candle,
             "entry": round(float(result["Entry"]), 2),
@@ -130,7 +138,7 @@ def main() -> int:
         return 0
 
     lines = [
-        "🇮🇳 BSE CRT BOT — NEW CONFIRMED DAILY SETUP",
+        "🇮🇳 NIFTY 50 + BSE CRT BOT — NEW CONFIRMED DAILY SETUP",
         f"Scan time: {now.strftime('%d-%b-%Y %I:%M %p IST')}",
         "",
     ]
