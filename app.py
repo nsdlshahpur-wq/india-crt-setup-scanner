@@ -683,6 +683,54 @@ with ai_tab:
         if isinstance(bt_trades, pd.DataFrame) and not bt_trades.empty:
             context_parts.append("Recent backtest trades: " + bt_trades.tail(20).to_json(orient="records", date_format="iso"))
 
+    # Show the selected scanner chart above the AI search/chat input.
+    # The chat_input remains below this chart so users can inspect price action first.
+    ai_price_map = st.session_state.get("scan_price_map", {})
+    if ai_price_map:
+        ai_symbol_names = st.session_state.get("scan_symbol_names", {})
+        ai_chart_symbols = sorted(ai_price_map.keys())
+        current_ai_symbol = st.session_state.get("crt_chart_symbol")
+        if current_ai_symbol not in ai_chart_symbols:
+            current_ai_symbol = ai_chart_symbols[0]
+        st.subheader("📊 CRT Chart")
+        ai_chart_symbol = st.selectbox(
+            "Chart के लिए शेयर / Index चुनें",
+            ai_chart_symbols,
+            index=ai_chart_symbols.index(current_ai_symbol),
+            format_func=lambda symbol: f"{symbol} — {ai_symbol_names.get(symbol, '')}",
+            key="crt_ai_chart_symbol",
+        )
+        ai_chart_data = ai_price_map.get(ai_chart_symbol)
+        if ai_chart_data is not None and not ai_chart_data.empty:
+            ai_chart_data = ai_chart_data.copy()
+            if isinstance(ai_chart_data.columns, pd.MultiIndex):
+                ai_chart_data.columns = [
+                    str(c[-1] if str(c[-1]).lower() in {"open", "high", "low", "close", "volume"} else c[0]).title()
+                    for c in ai_chart_data.columns
+                ]
+            ai_chart_data.columns = [str(c).title() for c in ai_chart_data.columns]
+            if all(c in ai_chart_data.columns for c in ["Open", "High", "Low", "Close"]):
+                ai_chart_data = ai_chart_data.dropna(subset=["Open", "High", "Low", "Close"]).tail(180)
+                ai_fig = go.Figure(data=[go.Candlestick(
+                    x=ai_chart_data.index,
+                    open=ai_chart_data["Open"],
+                    high=ai_chart_data["High"],
+                    low=ai_chart_data["Low"],
+                    close=ai_chart_data["Close"],
+                    name=ai_chart_symbol,
+                )])
+                ai_fig.update_layout(
+                    height=480,
+                    margin=dict(l=10, r=10, t=25, b=10),
+                    xaxis_rangeslider_visible=False,
+                    title=f"{ai_chart_symbol} · Daily Candles",
+                )
+                st.plotly_chart(ai_fig, use_container_width=True)
+                st.caption("चार्ट उपलब्ध Scanner के Daily OHLC data पर आधारित है; live tick chart नहीं है।")
+        st.divider()
+    else:
+        st.info("चार्ट देखने के लिए पहले CRT Scanner टैब में Scan market चलाएँ।")
+
     if "crt_ai_messages" not in st.session_state:
         st.session_state["crt_ai_messages"] = []
     for msg in st.session_state["crt_ai_messages"]:
