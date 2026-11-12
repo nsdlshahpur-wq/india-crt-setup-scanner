@@ -312,7 +312,6 @@ if "scan_results" in st.session_state:
     price_map = st.session_state.get("scan_price_map", {})
     if price_map:
         st.divider()
-        st.subheader("📊 CRT Chart + Setup Levels")
         chart_symbols = sorted(price_map.keys())
         symbol_names = st.session_state.get("scan_symbol_names", {})
         # Selecting a row in the scan table opens that symbol's chart below.
@@ -345,12 +344,6 @@ if "scan_results" in st.session_state:
             tv_chart_symbol = "NSE:" + chart_symbol
 
         st.divider()
-        st.subheader("🧭 Monthly (1M) → Daily (1D) CRT")
-        st.caption(
-            "यह Scanner केवल Monthly liquidity context और Daily CHoCH / FVG / IFVG / OB / BOB retest "
-            "पर काम करता है। Weekly, 4H, 1H या intraday entry timeframe इस strategy में उपयोग नहीं होते।"
-        )
-
         # Keep the original in-app Plotly CRT/indicator chart; TradingView opens directly via links above.
         chart_data = price_map.get(chart_symbol)
         if chart_data is not None and not chart_data.empty:
@@ -488,9 +481,3 @@ else:
         "- **Entry:** Retest के बाद उसी दिशा में confirming Daily close.  \n"
         "- **Active:** Sweep-candle SL और opposite M1 liquidity target बाकी."
     )
-
-st.divider()
-st.caption(
-    "Read-only technical scanner: कोई order place नहीं होता और यह investment advice नहीं है। "
-    "Yahoo Finance data unofficial है; Entry/SL/Targets को broker chart पर verify करें।"
-)
