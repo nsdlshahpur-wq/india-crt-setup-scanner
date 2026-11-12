@@ -184,6 +184,11 @@ with scanner_tab:
         n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
         st.metric("Missed / Stale Entry (not a fresh signal)", f"{missed_entry_count:,}")
         st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
+        ensemble_report = st.session_state.get("crt_ensemble_report", {})
+        if st.session_state.get("crt_ensemble_model") is not None:
+            st.success("CRT Multi-AI सक्रिय: Random Forest + Extra Trees + Gradient Boosting. Fresh Stage-3 setups पर ensemble probability नीचे दिखाई जाएगी.")
+        else:
+            st.info("CRT Multi-AI अभी train नहीं है। Backtest टैब में 5-Year BSE Backtest चलाएँ; पर्याप्त historical WIN/LOSS trades मिलने पर ensemble train होगा।")
         latest_daily_date = (
             pd.to_datetime(results["Last Candle"], errors="coerce").max()
             if not results.empty and "Last Candle" in results.columns else pd.NaT
@@ -584,7 +589,9 @@ with backtest_tab:
          except Exception as exc:
              st.exception(exc)
 
-     if "bse_backtest_result" in st.session_state:
+     if "crt_ensemble_report" in st.session_state:
+        context_parts.append("CRT multi-model ensemble validation report: " + str(st.session_state["crt_ensemble_report"]))
+    if "bse_backtest_result" in st.session_state:
          bt = st.session_state["bse_backtest_result"]
          meta = st.session_state.get("bse_backtest_meta", {})
          metrics = bt["metrics"]
