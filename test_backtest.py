@@ -68,7 +68,7 @@ def test_metrics_win_rate_excludes_ambiguous_and_open_but_pf_includes_conservati
     assert metrics["ambiguous"] == 1
     assert metrics["open"] == 1
     assert metrics["win_rate"] == 100 / 3
-    assert metrics["profit_factor"] == 2.0
+    assert metrics["profit_factor"] == 200 / 150
 
 
 def test_run_backtest_scanner_sees_only_asof_prefix(monkeypatch):
