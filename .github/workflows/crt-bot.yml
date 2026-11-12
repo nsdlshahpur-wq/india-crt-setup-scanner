@@ -1,0 +1,50 @@
+name: CRT BSE Monitor Bot
+
+on:
+  schedule:
+    # Weekdays, every 30 minutes during the Indian cash-market session.
+    # GitHub scheduled workflows are best-effort and may be delayed.
+    - cron: "*/30 3-10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crt-bse-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore signal de-duplication state
+        uses: actions/cache/restore@v4
+        with:
+          path: .bot_state
+          key: crt-bot-state-${{ github.run_id }}
+          restore-keys: |
+            crt-bot-state-
+      - name: Run read-only BSE CRT monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-4.1-mini
+        run: python crt_bot.py
+      - name: Save signal de-duplication state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .bot_state
+          key: crt-bot-state-${{ github.run_id }}
