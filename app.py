@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
+import time
 
 import requests
 import pandas as pd
@@ -721,18 +722,41 @@ with ai_tab:
                 "generationConfig": {"maxOutputTokens": 900, "temperature": 0.3},
             }
             try:
-                response = requests.post(
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
-                    headers={"x-goog-api-key": gemini_key, "Content-Type": "application/json"},
-                    json=payload,
-                    timeout=45,
-                )
-                response.raise_for_status()
-                body = response.json()
-                answer = "".join(
-                    part.get("text", "")
-                    for part in body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                ).strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
+                answer = ""
+                last_error = ""
+                # Retry temporary capacity/rate errors, then fall back to the
+                # lighter stable model so brief Gemini 3.8 capacity spikes do
+                # not repeatedly break the in-app assistant.
+                model_candidates = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+                for model_name in model_candidates:
+                    for attempt in range(3):
+                        response = requests.post(
+                            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
+                            headers={"x-goog-api-key": gemini_key, "Content-Type": "application/json"},
+                            json=payload,
+                            timeout=45,
+                        )
+                        if response.ok:
+                            body = response.json()
+                            answer = "".join(
+                                part.get("text", "")
+                                for part in body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                            ).strip()
+                            break
+                        last_error = f"HTTP {response.status_code}: {response.text[:500]}"
+                        if response.status_code in (429, 500, 502, 503, 504):
+                            if attempt < 2:
+                                time.sleep(1.5 * (attempt + 1))
+                                continue
+                            # Capacity/rate issue on this model: try fallback.
+                            break
+                        response.raise_for_status()
+                    if answer:
+                        break
+                    if response.status_code not in (429, 500, 502, 503, 504):
+                        response.raise_for_status()
+                if not answer:
+                    answer = f"Gemini अभी व्यस्त है या API limit पूरी हुई है। थोड़ी देर बाद फिर प्रयास करें। विवरण: {last_error}"
             except requests.HTTPError as exc:
                 detail = ""
                 try:
