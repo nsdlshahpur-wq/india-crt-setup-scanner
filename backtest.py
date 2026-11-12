@@ -7,6 +7,8 @@ strictly after the entry confirmation close.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 import math
 from typing import Any, Callable
 
@@ -182,6 +184,8 @@ def _equity_curve(trades: list[dict[str, Any]], initial_capital: float) -> pd.Da
     curve_rows = []
     equity = float(initial_capital)
     peak = equity
+    first_day = dates[0] - pd.Timedelta(days=1)
+    curve_rows.append({"Date": first_day, "Equity": equity, "Drawdown %": 0.0})
     for day in dates:
         day_pnl = sum(float(t["Net P&L"]) for t in trades if pd.Timestamp(t["Exit Date"]) == day)
         equity += day_pnl
@@ -200,15 +204,14 @@ def calculate_metrics(trades: list[dict[str, Any]], initial_capital: float) -> d
             "win_rate": 0.0, "profit_factor": 0.0, "net_pnl": 0.0,
             "net_return_pct": 0.0, "max_drawdown_pct": 0.0, "ending_equity": initial_capital,
         }
-    wins = frame[frame["Outcome"] == "WIN"]
-    losses = frame[frame["Outcome"] == "LOSS"]
     ambiguous = frame[frame["Outcome"].str.startswith("AMBIGUOUS")]
     open_trades = frame[frame["Outcome"] == "OPEN"]
+    closed = frame[frame["Outcome"] != "OPEN"]
+    wins = closed[closed["Net P&L"] > 0]
+    losses = closed[closed["Net P&L"] <= 0]
     decisive = len(wins) + len(losses)
-    gross_profit = float(wins["Net P&L"].clip(lower=0).sum() +
-                         ambiguous["Net P&L"].clip(lower=0).sum())
-    gross_loss = float(abs(losses["Net P&L"].clip(upper=0).sum()) +
-                       abs(ambiguous["Net P&L"].clip(upper=0).sum()))
+    gross_profit = float(closed["Net P&L"].clip(lower=0).sum())
+    gross_loss = float(abs(closed["Net P&L"].clip(upper=0).sum())))
     curve = _equity_curve(trades, initial_capital)
     net_pnl = float(frame["Net P&L"].sum())
     max_dd = abs(float(curve["Drawdown %"].min())) if not curve.empty else 0.0
@@ -250,6 +253,9 @@ def run_backtest(
 
     for symbol_number, (symbol, raw) in enumerate(price_map.items(), start=1):
         data = _normalise_ohlc(raw)
+        now = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata"))
+        if not data.empty and data.index[-1].date() == now.date() and now.time() < dtime(15, 40):
+            data = data.iloc[:-1]
         if len(data) < 81:
             errors[symbol] = "Insufficient daily history (need at least 81 bars including warm-up)."
             if progress_callback:
