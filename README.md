@@ -81,3 +81,17 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 - The **CRT AI Assistant** tab answers questions in Hindi/English about the existing CRT rules and the current session's scanner/backtest snapshot.
 - Configure `OPENAI_API_KEY` in Streamlit Cloud App Settings → Secrets (TOML: `OPENAI_API_KEY = "..."`) or as an environment variable. Never commit API keys to Git.
 - Uses the OpenAI Responses API with `gpt-4.1-mini`. AI explanations do not alter scanner rules or execute trades.
+
+
+## Google Gemini AI Assistant
+
+The in-app CRT AI Assistant uses Google's Gemini API through its OpenAI-compatible
+Chat Completions endpoint. Add the key in Streamlit Cloud → App settings → Secrets:
+
+```toml
+GEMINI_API_KEY = "your-gemini-api-key"
+```
+
+Do not commit API keys to GitHub. If a key has been exposed in chat, screenshots,
+or source control, revoke it and create a replacement. The assistant uses
+`gemini-2.5-flash`; it explains scanner/backtest data and does not execute trades.
