@@ -260,7 +260,7 @@ def run_backtest(
         now = pd.Timestamp.now(tz=ZoneInfo("Asia/Kolkata"))
         if not data.empty and data.index[-1].date() == now.date() and now.time() < dtime(15, 40):
             data = data.iloc[:-1]
-        if len(data) < 80
+        if len(data) < 80:
             errors[symbol] = "Insufficient daily history (need at least 80 bars including warm-up)."
             if progress_callback:
                 progress_callback(symbol_number, total, symbol)
