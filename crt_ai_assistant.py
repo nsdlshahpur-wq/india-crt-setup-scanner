@@ -51,6 +51,12 @@ def explain_setup(row: dict[str, Any], question: str = "") -> str:
     }
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
+        try:
+            import streamlit as st
+            api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
+        except Exception:
+            api_key = ""
+    if not api_key:
         return format_local_analysis(payload)
     try:
         response = requests.post(
