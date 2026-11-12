@@ -63,6 +63,10 @@ def test_scan_symbol_returns_complete_row():
     assert result["Symbol"] == "TEST.NS"
     assert result["Bias"] in {"Bullish", "Bearish", "Neutral"}
     assert result["Setup"] in {"BUY", "SELL", "Missed Entry - No Fresh Entry", "Wait Retest", "Wait CHoCH", "Wait FVG/IFVG/OB/BOB", "Target Hit", "Stop Loss Hit", "Target Hit Before Entry", "Stop Loss Hit Before Entry", "Ambiguous", "No Valid Monthly Sweep"}
+    assert result["Sweep Type"] in {"Sell-Side Liquidity Sweep (SSS)", "Buy-Side Liquidity Sweep (BSL)", "No confirmed sweep"}
+    assert isinstance(result["Setup Reason"], str) and result["Setup Reason"]
+    assert isinstance(result["CHoCH Rule"], str) and result["CHoCH Rule"]
+    assert isinstance(result["Entry Confirmation Rule"], str) and result["Entry Confirmation Rule"]
 
 
 def test_yfinance_multiindex_ticker_price_order():

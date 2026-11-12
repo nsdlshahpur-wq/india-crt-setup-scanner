@@ -200,8 +200,9 @@ if "scan_results" in st.session_state:
         preferred = [
             "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
             "Target (M1 Monthly H/L)", "Target Status", "Entry Status", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
-            "M2 Close", "M3 Month", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
-            "CHoCH Date", "Entry Date", "Zone Low", "Zone High", "Last Candle",
+            "M2 Close", "M3 Month", "Sweep Type", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
+            "CHoCH Date", "CHoCH Rule", "Entry Date", "Entry Confirmation Rule", "Entry Zone Type",
+            "Zone Low", "Zone High", "Setup Reason", "Last Candle",
         ]
         view = view[[c for c in preferred if c in view.columns]].copy()
 
@@ -375,6 +376,13 @@ if "scan_results" in st.session_state:
                 match = results[results["Symbol"] == chart_symbol] if not results.empty else pd.DataFrame()
                 if not match.empty:
                     setup_row = match.iloc[0]
+                    with st.expander("🧠 यह CRT Setup क्यों बना?"):
+                        st.write(f"**Monthly Status:** {setup_row.get('Monthly Status', 'N/A')}")
+                        st.write(f"**Liquidity Sweep:** {setup_row.get('Sweep Type', 'N/A')} · {setup_row.get('Sweep Date', 'N/A')}")
+                        st.write(f"**CHoCH:** {setup_row.get('CHoCH Rule', 'N/A')} · {setup_row.get('CHoCH Date', 'N/A')}")
+                        st.write(f"**Entry Logic:** {setup_row.get('Entry Confirmation Rule', 'N/A')}")
+                        st.write(f"**Reason:** {setup_row.get('Setup Reason', 'N/A')}")
+                        st.caption("यह नियम-आधारित OHLC व्याख्या है; TradingView के discretionary markings से हर स्थिति में समान होना जरूरी नहीं।")
                     levels = [
                         ("M1 High", setup_row.get("M1 High"), "gray", "dash"),
                         ("M1 Low", setup_row.get("M1 Low"), "gray", "dash"),
@@ -394,15 +402,54 @@ if "scan_results" in st.session_state:
                                 annotation_text=f"{label}: {float(value):.2f}",
                                 annotation_position="right",
                             )
+                    # CRT structure markers: liquidity sweep, CHoCH and the selected retest zone.
+                    direction_label = str(setup_row.get("Bias", ""))
+                    sweep_date_value = setup_row.get("Sweep Date")
+                    sweep_price_value = (
+                        setup_row.get("Sweep Candle Low")
+                        if direction_label == "Bullish"
+                        else setup_row.get("Sweep Candle High")
+                    )
+                    if pd.notna(sweep_date_value) and pd.notna(sweep_price_value):
+                        sweep_x = pd.to_datetime(sweep_date_value)
+                        sweep_label = "SSS · Sell-Side Sweep" if direction_label == "Bullish" else "BSL · Buy-Side Sweep"
+                        fig.add_trace(go.Scatter(
+                            x=[sweep_x], y=[float(sweep_price_value)],
+                            mode="markers+text",
+                            text=[sweep_label], textposition="bottom center",
+                            marker=dict(symbol="triangle-up" if direction_label == "Bullish" else "triangle-down", size=13, color="#16a34a" if direction_label == "Bullish" else "#dc2626"),
+                            name="Liquidity Sweep",
+                            hovertemplate="%{text}<br>%{x|%d %b %Y}<br>Price: %{y:.2f}<extra></extra>",
+                        ))
+                        fig.add_vline(x=sweep_x, line_dash="dot", line_color="#16a34a" if direction_label == "Bullish" else "#dc2626", opacity=0.55)
+
+                    choch_date_value = setup_row.get("CHoCH Date")
+                    choch_level_value = setup_row.get("CHoCH Reference Level")
+                    if pd.notna(choch_date_value) and pd.notna(choch_level_value):
+                        choch_x = pd.to_datetime(choch_date_value)
+                        fig.add_trace(go.Scatter(
+                            x=[choch_x], y=[float(choch_level_value)],
+                            mode="markers+text",
+                            text=["CHoCH"], textposition="top center",
+                            marker=dict(symbol="diamond", size=11, color="#0891b2"),
+                            name="Daily CHoCH",
+                            hovertemplate="CHoCH<br>%{x|%d %b %Y}<br>Break level: %{y:.2f}<extra></extra>",
+                        ))
+                        fig.add_vline(x=choch_x, line_dash="dash", line_color="#0891b2", opacity=0.45)
+
                     zone_low = setup_row.get("Zone Low")
                     zone_high = setup_row.get("Zone High")
                     if pd.notna(zone_low) and pd.notna(zone_high):
+                        zone_type = str(setup_row.get("Entry Zone Type", "Entry Zone"))
+                        zone_label = "Advance OB" if zone_type == "OB" else ("Breaker OB" if zone_type == "BOB" else f"{zone_type} Retest Zone")
                         fig.add_hrect(
                             y0=float(zone_low),
                             y1=float(zone_high),
-                            opacity=0.16,
-                            line_width=0,
-                            annotation_text=f'{setup_row.get("Entry Zone Type", "Entry Zone")} Retest Area',
+                            opacity=0.20,
+                            fillcolor="#22c55e" if direction_label == "Bullish" else "#ef4444",
+                            line_width=1,
+                            line_color="#16a34a" if direction_label == "Bullish" else "#dc2626",
+                            annotation_text=f"{zone_label}: {float(zone_low):.2f}–{float(zone_high):.2f}",
                             annotation_position="top left",
                         )
                     st.caption(
