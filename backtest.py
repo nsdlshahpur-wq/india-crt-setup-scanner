@@ -138,6 +138,9 @@ def _allocate_candidates(candidates: list[dict[str, Any]], cfg: BacktestConfig) 
         reserved = sum(float(t["Entry Fill"]) * int(t["Quantity"]) for t in active)
         available = max(0.0, equity - reserved)
 
+        # Do not stack multiple simultaneous positions in the same security.
+        if any(str(t["Symbol"]) == str(candidate["Symbol"]) for t in active):
+            continue
         direction = int(candidate["_direction"])
         entry_ref = float(candidate["Entry Reference"])
         stop = float(candidate["Stop Loss"])
