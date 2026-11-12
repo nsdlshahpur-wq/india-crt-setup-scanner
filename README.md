@@ -65,3 +65,12 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 - `data_fetch.py` — Yahoo Finance daily OHLC downloader.
 - `universe.py` — NSE/BSE stock and index universe.
 - `test_scanner.py`, `test_crt_strategy_rules.py`, `test_choch_reference.py`, `test_data_fetch.py`, `test_app.py` — core scanner tests.
+
+## Scheduled CRT monitoring bot
+
+- `crt_bot.py` runs the existing BSE Monthly-Daily CRT scanner in read-only mode.
+- `.github/workflows/crt-bot.yml` schedules a scan every 30 minutes on weekdays during the approximate Indian cash-market session (UTC cron).
+- Telegram alerts require repository Actions secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+- Optional AI Hindi summary requires `OPENAI_API_KEY`; without it the deterministic CRT alert still works.
+- GitHub Actions is a scheduled, best-effort runner, **not a continuously running 24/7 server**. Runs can be delayed, quotas apply, and scans do not execute on weekends/holidays. For true always-on monitoring, deploy the same script on an always-on VPS/container and use a persistent database/volume for deduplication state.
+- This bot never places or modifies orders. Do not add broker trading credentials to this workflow.
