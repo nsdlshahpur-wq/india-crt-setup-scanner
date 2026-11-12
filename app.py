@@ -8,6 +8,7 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
@@ -361,7 +362,43 @@ with scanner_tab:
                 tv_chart_symbol = "NSE:" + chart_symbol
     
             st.divider()
-            # Keep the original in-app Plotly CRT/indicator chart; TradingView opens directly via links above.
+            st.subheader("📈 TradingView Advanced Chart")
+            st.caption(
+                f"{tv_chart_symbol} · Daily timeframe · TradingView chart widget. "
+                "Chart quotes and the scanner's Yahoo Finance Daily data may differ."
+            )
+            # Official TradingView Advanced Chart widget embedded in the app.
+            import json
+            tv_widget_symbol = json.dumps(tv_chart_symbol)
+            tv_widget_html = f"""
+            <div class="tradingview-widget-container" style="height:620px;width:100%">
+              <div id="tradingview_crt_chart" style="height:580px;width:100%"></div>
+              <div class="tradingview-widget-copyright">
+                <a href="https://www.tradingview.com/" rel="noopener nofollow" target="_blank">
+                  <span>View chart on TradingView</span>
+                </a>
+              </div>
+              <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+              <script type="text/javascript">
+                new TradingView.widget({{
+                  "autosize": true,
+                  "symbol": {tv_widget_symbol},
+                  "interval": "D",
+                  "timezone": "Asia/Kolkata",
+                  "theme": "light",
+                  "style": "1",
+                  "locale": "en",
+                  "enable_publishing": false,
+                  "allow_symbol_change": true,
+                  "calendar": false,
+                  "support_host": "https://www.tradingview.com"
+                }});
+              </script>
+            </div>
+            """
+            components.html(tv_widget_html, height=630, scrolling=False)
+
+            # Keep the original Plotly CRT/indicator chart below the TradingView widget.
             chart_data = price_map.get(chart_symbol)
             if chart_data is not None and not chart_data.empty:
                 chart_data = chart_data.copy()
