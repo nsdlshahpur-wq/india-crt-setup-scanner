@@ -694,7 +694,43 @@ with ai_tab:
         st.session_state["crt_ai_messages"].append({"role": "user", "content": question})
         with st.chat_message("user"):
             st.markdown(question)
-        if not gemini_key:
+        # Handle direct stock/setup lookup from the scanner's own results first.
+        # This avoids asking Gemini to guess current setups or prices.
+        scan_df = st.session_state.get("scan_results")
+        q_lower = question.lower()
+        setup_lookup_terms = (
+            "kis stock", "kaun sa stock", "kaunse stock", "which stock", "stocks me setup",
+            "stock me setup", "setup bana", "buy setup", "sell setup", "aaj ke liye",
+            "आज किस", "किस स्टॉक", "किस शेयर", "कौन सा शेयर", "कौनसे शेयर",
+            "किसमें सेटअप", "सेटअप बना", "आज के लिए", "buy", "sell"
+        )
+        direct_stock_lookup = any(term in q_lower for term in setup_lookup_terms)
+        if direct_stock_lookup:
+            if not isinstance(scan_df, pd.DataFrame):
+                answer = "अभी Scanner का कोई परिणाम उपलब्ध नहीं है। पहले **CRT Scanner** टैब में Market Universe चुनकर **Scan market** चलाएँ। Scan पूरा होने के बाद AI Assistant में फिर पूछें—मैं उसी scan के BUY/SELL और waiting setups खोजकर बताऊँगा।"
+            elif scan_df.empty:
+                answer = "आखिरी scan में कोई CRT setup नहीं मिला। नया scan चलाकर फिर जाँचें।"
+            else:
+                wanted = ["Symbol", "Name", "Setup", "Bias", "LTP", "Entry", "SL", "Target (M1 Monthly H/L)", "Stage", "Setup Reason", "Last Candle", "Entry Status", "Target Status"]
+                available = [c for c in wanted if c in scan_df.columns]
+                candidates = scan_df.copy()
+                if "Setup" in candidates.columns:
+                    candidates = candidates[
+                        candidates["Setup"].astype(str).str.upper().isin(
+                            ["BUY", "SELL", "WAIT RETEST", "WAIT FVG/IFVG/OB/BOB"]
+                        )
+                    ]
+                if candidates.empty:
+                    answer = "आखिरी scan में कोई BUY/SELL या सक्रिय waiting setup नहीं मिला। यह Yahoo Finance के आखिरी उपलब्ध Daily close पर आधारित है, live intraday signal नहीं।"
+                else:
+                    candidates = candidates[available].head(100)
+                    scan_stamp = st.session_state.get("scan_time", "अज्ञात")
+                    answer = (
+                        f"**आखिरी Scanner Scan: {scan_stamp}**\n\n"
+                        "नीचे उपलब्ध scan-data में मिले setups हैं। ये live tick signals नहीं हैं; Last Candle की तारीख देखें।\n\n"
+                        + candidates.to_markdown(index=False)
+                    )
+        elif not gemini_key:
             answer = "Gemini API key सेट नहीं है। Streamlit Secrets में GEMINI_API_KEY जोड़ने के बाद फिर प्रश्न पूछें।"
         else:
             history = st.session_state["crt_ai_messages"][-12:]
