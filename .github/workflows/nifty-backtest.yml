@@ -1,0 +1,24 @@
+name: Nifty 50 multi-timeframe backtest
+on:
+  push:
+    paths:
+      - 'research_data/**'
+      - 'backtest_nifty_2025.py'
+      - '.github/workflows/nifty-backtest.yml'
+  workflow_dispatch:
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy
+      - run: python backtest_nifty_2025.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nifty50-backtest-results
+          path: |
+            backtest_summary.csv
+            backtest_trades.csv
