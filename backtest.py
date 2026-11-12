@@ -210,8 +210,9 @@ def calculate_metrics(trades: list[dict[str, Any]], initial_capital: float) -> d
     ambiguous = frame[frame["Outcome"].str.startswith("AMBIGUOUS")]
     open_trades = frame[frame["Outcome"] == "OPEN"]
     closed = frame[frame["Outcome"] != "OPEN"]
-    wins = closed[closed["Net P&L"] > 0]
-    losses = closed[closed["Net P&L"] <= 0]
+    decisive_closed = closed[~closed["Outcome"].str.startswith("AMBIGUOUS")]
+    wins = decisive_closed[decisive_closed["Net P&L"] > 0]
+    losses = decisive_closed[decisive_closed["Net P&L"] <= 0]
     decisive = len(wins) + len(losses)
     gross_profit = float(closed["Net P&L"].clip(lower=0).sum())
     gross_loss = float(abs(closed["Net P&L"].clip(upper=0).sum()))
