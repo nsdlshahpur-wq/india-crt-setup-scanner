@@ -89,6 +89,8 @@ def test_run_backtest_scanner_sees_only_asof_prefix(monkeypatch):
 
     # The next candle reaches target. The entry bar itself does not.
     data.iloc[80, data.columns.get_loc("High")] = 111.0
+    monkeypatch.setattr(backtest, "_three_month_context",
+                        lambda prefix: {"monthly_status": "VALID_BULLISH_SWEEP"})
     monkeypatch.setattr(backtest, "scan_symbol", fake_scan)
     result = run_backtest(
         {"ABC.BO": data}, names={"ABC.BO": "ABC"},
