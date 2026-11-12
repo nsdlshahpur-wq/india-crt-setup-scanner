@@ -23,9 +23,9 @@ with st.sidebar:
     st.header("Scanner Settings")
     universe_mode = st.selectbox(
         "Market universe",
-        ["All Stocks", "All Index"],
+        ["All India stocks + indices", "All Stocks", "All Index"],
         index=0,
-        help="All Stocks: NSE main-board EQ shares. BSE duplicate listings and SME scrips are excluded to keep the scan fast. All Index: only indices with a Yahoo Finance ticker mapping.",
+        help="All India stocks + indices: NSE EQ + BSE EQ stocks and mapped Indian indices. All Stocks: NSE EQ only. All Index: mapped indices only. Large scans can take several minutes and some Yahoo tickers may be unavailable.",
     )
     history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=0)
     st.divider()
@@ -53,6 +53,7 @@ with scanner_tab:
     @st.cache_data(ttl=1800, show_spinner=False)
     def _load_universe(mode: str) -> pd.DataFrame:
         source_mode = {
+            "All India stocks + indices": "All India stocks + indices",
             "All Stocks": "All NSE EQ stocks",
             "All Index": "All Indian indices",
         }[mode]
