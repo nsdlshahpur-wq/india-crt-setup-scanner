@@ -683,16 +683,16 @@ with ai_tab:
         if isinstance(bt_trades, pd.DataFrame) and not bt_trades.empty:
             context_parts.append("Recent backtest trades: " + bt_trades.tail(20).to_json(orient="records", date_format="iso"))
 
-    # Show the selected scanner chart above the AI search/chat input.
-    # The chat_input remains below this chart so users can inspect price action first.
+    # Chart is independent of a full-market scan: users can load any NSE symbol
+    # or common Indian index here. Existing scan data is reused when available.
     ai_price_map = st.session_state.get("scan_price_map", {})
+    ai_symbol_names = st.session_state.get("scan_symbol_names", {})
+    st.subheader("📊 CRT Chart")
     if ai_price_map:
-        ai_symbol_names = st.session_state.get("scan_symbol_names", {})
         ai_chart_symbols = sorted(ai_price_map.keys())
         current_ai_symbol = st.session_state.get("crt_chart_symbol")
         if current_ai_symbol not in ai_chart_symbols:
             current_ai_symbol = ai_chart_symbols[0]
-        st.subheader("📊 CRT Chart")
         ai_chart_symbol = st.selectbox(
             "Chart के लिए शेयर / Index चुनें",
             ai_chart_symbols,
@@ -701,35 +701,60 @@ with ai_tab:
             key="crt_ai_chart_symbol",
         )
         ai_chart_data = ai_price_map.get(ai_chart_symbol)
-        if ai_chart_data is not None and not ai_chart_data.empty:
-            ai_chart_data = ai_chart_data.copy()
-            if isinstance(ai_chart_data.columns, pd.MultiIndex):
-                ai_chart_data.columns = [
-                    str(c[-1] if str(c[-1]).lower() in {"open", "high", "low", "close", "volume"} else c[0]).title()
-                    for c in ai_chart_data.columns
-                ]
-            ai_chart_data.columns = [str(c).title() for c in ai_chart_data.columns]
-            if all(c in ai_chart_data.columns for c in ["Open", "High", "Low", "Close"]):
-                ai_chart_data = ai_chart_data.dropna(subset=["Open", "High", "Low", "Close"]).tail(180)
-                ai_fig = go.Figure(data=[go.Candlestick(
-                    x=ai_chart_data.index,
-                    open=ai_chart_data["Open"],
-                    high=ai_chart_data["High"],
-                    low=ai_chart_data["Low"],
-                    close=ai_chart_data["Close"],
-                    name=ai_chart_symbol,
-                )])
-                ai_fig.update_layout(
-                    height=480,
-                    margin=dict(l=10, r=10, t=25, b=10),
-                    xaxis_rangeslider_visible=False,
-                    title=f"{ai_chart_symbol} · Daily Candles",
-                )
-                st.plotly_chart(ai_fig, use_container_width=True)
-                st.caption("चार्ट उपलब्ध Scanner के Daily OHLC data पर आधारित है; live tick chart नहीं है।")
-        st.divider()
     else:
-        st.info("चार्ट देखने के लिए पहले CRT Scanner टैब में Scan market चलाएँ।")
+        st.caption("पूरे बाजार का Scan किए बिना भी यहाँ किसी एक शेयर या Index का चार्ट खोल सकते हैं।")
+        ai_symbol_input = st.text_input(
+            "NSE Symbol / Index",
+            value=st.session_state.get("ai_chart_symbol_input", "NIFTY"),
+            placeholder="उदाहरण: RELIANCE, SBIN, NIFTY, BANKNIFTY, SENSEX",
+            key="ai_chart_symbol_input",
+        )
+        load_ai_chart = st.button("📈 Load Chart", type="primary", key="load_ai_chart")
+        ai_chart_data = st.session_state.get("ai_single_chart_data")
+        ai_chart_symbol = st.session_state.get("ai_single_chart_symbol", "")
+        if load_ai_chart:
+            normalized_symbol = ai_symbol_input.strip().upper()
+            if normalized_symbol:
+                with st.spinner(f"{normalized_symbol} का Daily chart डाउनलोड हो रहा है..."):
+                    chart_map, chart_errors = download_market_data([normalized_symbol], period=history_period)
+                if normalized_symbol in chart_map:
+                    ai_chart_data = chart_map[normalized_symbol]
+                    ai_chart_symbol = normalized_symbol
+                    st.session_state["ai_single_chart_data"] = ai_chart_data
+                    st.session_state["ai_single_chart_symbol"] = ai_chart_symbol
+                else:
+                    ai_chart_data = None
+                    st.session_state.pop("ai_single_chart_data", None)
+                    st.error(f"{normalized_symbol} का चार्ट उपलब्ध नहीं हुआ: {chart_errors.get(normalized_symbol, 'Yahoo Finance data unavailable')}")
+    if ai_chart_data is not None and not ai_chart_data.empty:
+        ai_chart_data = ai_chart_data.copy()
+        if isinstance(ai_chart_data.columns, pd.MultiIndex):
+            ai_chart_data.columns = [
+                str(c[-1] if str(c[-1]).lower() in {"open", "high", "low", "close", "volume"} else c[0]).title()
+                for c in ai_chart_data.columns
+            ]
+        ai_chart_data.columns = [str(c).title() for c in ai_chart_data.columns]
+        if all(c in ai_chart_data.columns for c in ["Open", "High", "Low", "Close"]):
+            ai_chart_data = ai_chart_data.dropna(subset=["Open", "High", "Low", "Close"]).tail(180)
+            ai_fig = go.Figure(data=[go.Candlestick(
+                x=ai_chart_data.index,
+                open=ai_chart_data["Open"],
+                high=ai_chart_data["High"],
+                low=ai_chart_data["Low"],
+                close=ai_chart_data["Close"],
+                name=ai_chart_symbol,
+            )])
+            ai_fig.update_layout(
+                height=480,
+                margin=dict(l=10, r=10, t=25, b=10),
+                xaxis_rangeslider_visible=False,
+                title=f"{ai_chart_symbol} · Daily Candles",
+            )
+            st.plotly_chart(ai_fig, use_container_width=True)
+            st.caption("चार्ट Yahoo Finance के Daily OHLC data पर आधारित है; live tick chart नहीं है।")
+    else:
+        st.info("ऊपर Symbol लिखकर **Load Chart** दबाएँ। इसके बाद AI Search Box चार्ट के नीचे रहेगा।")
+    st.divider()
 
     if "crt_ai_messages" not in st.session_state:
         st.session_state["crt_ai_messages"] = []
