@@ -68,7 +68,7 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 
 ## Scheduled CRT monitoring bot
 
-- `crt_bot.py` runs the existing BSE Monthly-Daily CRT scanner in read-only mode.
+- `crt_bot.py` runs the NIFTY 50 index itself plus the BSE equity universe through the Monthly-Daily CRT scanner in read-only mode. It does not scan all 50 NIFTY constituents as separate stocks.
 - `.github/workflows/crt-bot.yml` schedules a scan every 30 minutes on weekdays during the approximate Indian cash-market session (UTC cron).
 - Telegram alerts require repository Actions secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - Optional AI Hindi summary requires `OPENAI_API_KEY`; without it the deterministic CRT alert still works.
@@ -114,7 +114,7 @@ or source control, revoke it and create a replacement. The assistant uses
 
 - The in-app **CRT AI Assistant** uses one Gemini model for Hindi explanations of the strategy and current scan/backtest data. Add only `GEMINI_API_KEY` in Streamlit Cloud → App → Settings → Secrets.
 - The historical CRT outcome model is separate from the chat assistant: it uses Random Forest, Extra Trees and Histogram Gradient Boosting only after enough closed backtest trades are available. These are local ML classifiers, not external AI APIs.
-- The existing `crt_bot.py` is the scheduled alert bot. It scans BSE EQ symbols for fresh confirmed Stage-3 CRT setups and can send Telegram alerts. Optional `OPENAI_API_KEY` adds a short Hindi summary to the Telegram alert; the bot still works without this optional summary.
+- The existing `crt_bot.py` is the scheduled alert bot. It scans the NIFTY 50 index itself plus BSE EQ symbols for fresh confirmed Stage-3 CRT setups and can send Telegram alerts. Optional `OPENAI_API_KEY` adds a short Hindi summary to the Telegram alert; the bot still works without this optional summary.
 - The unused five-provider consensus integration (Groq, Mistral, OpenRouter and Cloudflare alongside Gemini) has been removed from the app to avoid multiple failing API connections, quota issues and unnecessary setup.
 - No component places broker orders. AI text and model scores are research aids, not guaranteed predictions.
 

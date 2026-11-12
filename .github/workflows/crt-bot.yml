@@ -1,4 +1,4 @@
-name: CRT BSE Monitor Bot
+name: NIFTY 50 + BSE CRT Monitor Bot
 
 on:
   schedule:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: crt-bse-monitor
+  group: crt-market-monitor
   cancel-in-progress: false
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           key: crt-bot-state-${{ github.run_id }}
           restore-keys: |
             crt-bot-state-
-      - name: Run read-only BSE CRT monitor
+      - name: Run read-only NIFTY 50 + BSE CRT monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

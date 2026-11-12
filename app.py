@@ -716,14 +716,14 @@ with ai_tab:
     st.caption("अपने CRT Scanner, BUY/SELL setups, Backtest और risk management के बारे में हिंदी में सवाल पूछें। AI केवल उपलब्ध app-data के आधार पर समझाएगा; यह trading execution नहीं करता।")
 
     with st.expander("📨 CRT Telegram Alert Bot — उपलब्ध Python Bot", expanded=True):
-        st.write("Repository में मौजूद `crt_bot.py` और `.github/workflows/crt-bot.yml` इस्तेमाल होते हैं। यह हर 30 मिनट (GitHub Actions schedule best-effort) BSE EQ शेयरों में केवल confirmed Stage-3 CRT BUY/SELL setup खोजकर Telegram पर alert भेजता है।")
+        st.write("Repository में मौजूद `crt_bot.py` और `.github/workflows/crt-bot.yml` इस्तेमाल होते हैं। यह हर 30 मिनट (GitHub Actions schedule best-effort) NIFTY 50 इंडेक्स और BSE EQ शेयरों में केवल confirmed Stage-3 CRT BUY/SELL setup खोजकर Telegram पर alert भेजता है।")
         st.markdown("[GitHub Actions में Bot को manually चलाएँ](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/actions/workflows/crt-bot.yml)")
         st.markdown("[Bot Python code देखें](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/blob/main/crt_bot.py)")
         st.markdown("[Schedule workflow देखें](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/blob/main/.github/workflows/crt-bot.yml)")
         st.write("GitHub → Repository → Settings → Secrets and variables → Actions में ये secrets जोड़ें:")
         st.code("TELEGRAM_BOT_TOKEN = your_telegram_bot_token\nTELEGRAM_CHAT_ID = your_telegram_chat_id\nOPENAI_API_KEY = optional_openai_key", language="text")
         st.caption("Telegram alerts के लिए पहले दो secrets जरूरी हैं। OPENAI_API_KEY केवल वैकल्पिक Hindi AI summary के लिए है। कोई broker order place नहीं होता।")
-        st.warning("ध्यान दें: मौजूदा scheduled bot BSE EQ shares scan करता है; यह NIFTY 50 index-only bot नहीं है।")
+        st.warning("ध्यान दें: Bot NIFTY 50 इंडेक्स को एक instrument की तरह scan करता है, NIFTY 50 के सभी 50 constituent stocks को अलग-अलग नहीं। साथ में BSE EQ shares भी scan होते हैं।")
 
     def _get_gemini_key():
         key = os.getenv("GEMINI_API_KEY", "").strip()
