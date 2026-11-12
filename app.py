@@ -589,9 +589,7 @@ with backtest_tab:
          except Exception as exc:
              st.exception(exc)
 
-     if "crt_ensemble_report" in st.session_state:
-        context_parts.append("CRT multi-model ensemble validation report: " + str(st.session_state["crt_ensemble_report"]))
-    if "bse_backtest_result" in st.session_state:
+     if "bse_backtest_result" in st.session_state:
          bt = st.session_state["bse_backtest_result"]
          meta = st.session_state.get("bse_backtest_meta", {})
          metrics = bt["metrics"]
@@ -648,7 +646,7 @@ with backtest_tab:
                                   height=300, template="plotly_white")
              st.plotly_chart(dd_fig, use_container_width=True)
          if trades.empty:
-             st.warning("इस अवधि और उपलब्ध BSE symbols में कोई qualifying CRT entry नहीं मिली।")
+             st.warning("इस अवधि और उपलब्ध India-market symbols में कोई qualifying CRT entry नहीं मिली।")
          else:
              display_cols = [
                  "Symbol", "Name", "Direction", "Entry Date", "Entry Fill", "Stop Loss", "Target",
@@ -661,7 +659,7 @@ with backtest_tab:
              st.download_button(
                  "⬇️ Download trade history CSV",
                  trades.to_csv(index=False).encode("utf-8-sig"),
-                 file_name="bse_crt_backtest_trades.csv", mime="text/csv"
+                 file_name="india_full_market_crt_backtest_trades.csv", mime="text/csv"
              )
          if bt["errors"]:
              with st.expander(f"Backtest data / symbol errors ({len(bt['errors']):,})"):
@@ -669,11 +667,11 @@ with backtest_tab:
                  st.dataframe(err_df, use_container_width=True, hide_index=True)
          st.warning(
              "महत्वपूर्ण सीमाएँ: universe आज के NSE/BSE exchange masters और mapped indices पर आधारित है, इसलिए delisted stocks और historical constituent changes शामिल नहीं हैं (survivorship bias). "
-             "Yahoo Finance BSE data अधूरा/adjusted/अनुपलब्ध हो सकता है। Charges अनुमानित bps हैं, वास्तविक contract-note taxes नहीं। "
+             "Yahoo Finance का कुछ NSE/BSE stock और index data अधूरा/adjusted/अनुपलब्ध हो सकता है। Charges अनुमानित bps हैं, वास्तविक contract-note taxes नहीं। "
              "Equity curve realised exits पर आधारित है; intraday mark-to-market नहीं।"
          )
      else:
-         st.info("Backtest चलाने के लिए ऊपर **Run 5-Year BSE Backtest** दबाएँ।")
+         st.info("Backtest चलाने के लिए ऊपर **Run 5-Year Full-Market Backtest** दबाएँ।")
 
 
 with ai_tab:
@@ -707,6 +705,8 @@ with ai_tab:
         if isinstance(sr, pd.DataFrame):
             context_parts.append("Latest scanner snapshot (up to 30 rows): " + sr.head(30).to_json(orient="records", date_format="iso"))
             context_parts.append(f"Scanner scan time: {st.session_state.get('scan_time', 'unknown')}")
+    if "crt_ensemble_report" in st.session_state:
+        context_parts.append("CRT multi-model ensemble validation report: " + str(st.session_state["crt_ensemble_report"]))
     if "bse_backtest_result" in st.session_state:
         br = st.session_state["bse_backtest_result"]
         context_parts.append("Latest backtest metrics: " + str(br.get("metrics", {})))
