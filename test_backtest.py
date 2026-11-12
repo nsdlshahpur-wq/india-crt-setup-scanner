@@ -64,10 +64,10 @@ def test_metrics_win_rate_excludes_ambiguous_and_open_but_pf_includes_conservati
     metrics = calculate_metrics(trades, 100_000)
     assert metrics["total_trades"] == 4
     assert metrics["wins"] == 1
-    assert metrics["losses"] == 2
+    assert metrics["losses"] == 1
     assert metrics["ambiguous"] == 1
     assert metrics["open"] == 1
-    assert metrics["win_rate"] == 100 / 3
+    assert metrics["win_rate"] == 50.0
     assert metrics["profit_factor"] == 200 / 150
 
 
