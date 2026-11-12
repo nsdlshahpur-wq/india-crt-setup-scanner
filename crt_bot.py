@@ -80,10 +80,15 @@ def save_state(seen: set[str]) -> None:
     STATE_PATH.write_text(json.dumps(sorted(seen), indent=2), encoding="utf-8")
 
 
-def build_bot_universe() -> pd.DataFrame:
+def build_bot_universe(
+    nifty50: pd.DataFrame | None = None,
+    bse_equities: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Combine the NIFTY 50 index itself with the BSE EQ equity universe."""
-    nifty50 = make_universe("Custom symbols", "NIFTY 50")
-    bse_equities = make_universe("All BSE EQ stocks")
+    if nifty50 is None:
+        nifty50 = make_universe("Custom symbols", "NIFTY 50")
+    if bse_equities is None:
+        bse_equities = make_universe("All BSE EQ stocks")
     combined = pd.concat([nifty50, bse_equities], ignore_index=True)
     combined = combined[combined["Symbol"].astype(str).str.strip().ne("")]
     return combined.drop_duplicates(subset=["Symbol"]).reset_index(drop=True)
