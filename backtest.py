@@ -15,7 +15,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from scanner import ScanConfig, _normalise_ohlc, scan_symbol
+from scanner import ScanConfig, _normalise_ohlc, _three_month_context, scan_symbol
 
 
 @dataclass(frozen=True)
@@ -265,10 +265,25 @@ def run_backtest(
                 progress_callback(symbol_number, total, symbol)
             continue
         found_for_symbol: set[str] = set()
+        active_month = None
+        month_has_valid_sweep = False
         # No-look-ahead: scanner receives a prefix ending exactly on the day being tested.
+        # Monthly M1/M2 context is fixed during M3, so compute it once per month and
+        # skip daily CHoCH/zone scans in months that cannot possibly form a CRT setup.
         for asof_index in range(79, len(data) - 1):
             prefix_start = max(0, asof_index - max(160, int(cfg.max_prefix_bars)) + 1)
             prefix = data.iloc[prefix_start : asof_index + 1]
+            month_key = data.index[asof_index].to_period("M")
+            if month_key != active_month:
+                active_month = month_key
+                monthly = _three_month_context(prefix)
+                month_has_valid_sweep = bool(
+                    monthly and monthly.get("monthly_status") in {
+                        "VALID_BULLISH_SWEEP", "VALID_BEARISH_SWEEP"
+                    }
+                )
+            if not month_has_valid_sweep:
+                continue
             signal = scan_symbol(symbol, name_map.get(symbol, symbol), prefix, scfg)
             if not signal or int(signal.get("Stage", 0)) != 3:
                 continue
