@@ -102,3 +102,33 @@ def test_run_backtest_scanner_sees_only_asof_prefix(monkeypatch):
     assert len(result["trades"]) == 1
     assert result["trades"].iloc[0]["Entry Date"] == signal_date
     assert result["trades"].iloc[0]["Outcome"] == "WIN"
+
+
+
+def test_points_report_counts_overlapping_candidates_without_capital_filtering():
+    from backtest import calculate_points_metrics, build_yearly_points_report
+
+    candidates = [
+        {"Entry Date": "2024-01-02", "Exit Date": "2024-01-05",
+         "Entry Reference": 100.0, "Exit Reference": 110.0,
+         "Outcome": "WIN", "_direction": 1},
+        {"Entry Date": "2024-01-03", "Exit Date": "2024-01-08",
+         "Entry Reference": 200.0, "Exit Reference": 190.0,
+         "Outcome": "LOSS", "_direction": 1},
+        {"Entry Date": "2025-02-03", "Exit Date": "2025-02-04",
+         "Entry Reference": 300.0, "Exit Reference": 305.0,
+         "Outcome": "OPEN", "_direction": -1},
+    ]
+    metrics = calculate_points_metrics(candidates)
+    assert metrics["total_trades"] == 3
+    assert metrics["wins"] == 1
+    assert metrics["losses"] == 1
+    assert metrics["open"] == 1
+    assert metrics["net_points"] == 0.0
+    assert metrics["profit_factor"] == 1.0
+
+    yearly = build_yearly_points_report(candidates)
+    assert yearly["Year"].tolist() == [2024, 2025]
+    assert yearly.iloc[0]["Trades"] == 2
+    assert yearly.iloc[0]["Net Points"] == 0.0
+    assert yearly.iloc[1]["Open"] == 1
