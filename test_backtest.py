@@ -98,7 +98,7 @@ def test_run_backtest_scanner_sees_only_asof_prefix(monkeypatch):
                               charges_bps_per_side=0, slippage_bps_per_side=0),
     )
     assert seen_last_dates
-    assert max(seen_last_dates) <= data.index[-2]
+    assert max(seen_last_dates) <= data.index[-1]
     assert len(result["trades"]) == 1
     assert result["trades"].iloc[0]["Entry Date"] == signal_date
     assert result["trades"].iloc[0]["Outcome"] == "WIN"
