@@ -4,7 +4,7 @@ A Streamlit dashboard for the Monthly (1M) → Daily (1D) CRT scanner and histor
 
 ## Dashboard
 
-The app navigation intentionally contains only **app**. The separate Monthly-Daily rulebook, backtesting, watchlist/alerts, trade journal, AI assistant, broker connections and AI Strong CRT pages have been removed, along with their page-specific Python modules and tests.
+The app includes the CRT Scanner, historical Backtest and an in-app CRT AI Assistant. The assistant can explain the strategy and interpret the latest scanner/backtest data available in the current app session.
 
 ## Strategy overview
 
@@ -58,7 +58,7 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 
 ## Main files
 
-- `app.py` — single-page Streamlit dashboard.
+- `app.py` — Streamlit dashboard with Scanner, Backtest and CRT AI Assistant tabs.
 - `scanner.py` — Monthly sweep/reclaim, Daily CHoCH, FVG/IFVG/OB/BOB zones, retest, entry and outcome logic.
 - `backtest.py` — no-look-ahead historical simulation, position sizing, costs, metrics and equity curve.
 - `test_backtest.py` — offline tests for exits, costs, sizing, metrics and as-of signal evaluation.
@@ -74,3 +74,10 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 - Optional AI Hindi summary requires `OPENAI_API_KEY`; without it the deterministic CRT alert still works.
 - GitHub Actions is a scheduled, best-effort runner, **not a continuously running 24/7 server**. Runs can be delayed, quotas apply, and scans do not execute on weekends/holidays. For true always-on monitoring, deploy the same script on an always-on VPS/container and use a persistent database/volume for deduplication state.
 - This bot never places or modifies orders. Do not add broker trading credentials to this workflow.
+
+
+## In-app CRT AI Assistant
+
+- The **CRT AI Assistant** tab answers questions in Hindi/English about the existing CRT rules and the current session's scanner/backtest snapshot.
+- Configure `OPENAI_API_KEY` in Streamlit Cloud App Settings → Secrets (TOML: `OPENAI_API_KEY = "..."`) or as an environment variable. Never commit API keys to Git.
+- Uses the OpenAI Responses API with `gpt-4.1-mini`. AI explanations do not alter scanner rules or execute trades.
