@@ -15,7 +15,6 @@ from scanner import ScanConfig, scan_symbol
 from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from crt_ai import train_crt_model, score_crt_signals
-from multi_ai import run_multi_ai_consensus, configured_providers
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -129,30 +128,6 @@ with scanner_tab:
                 scan_progress.progress(i / total_scan_rows, text=f"Scanning {i:,}/{len(scan_rows):,}")
     
             result_df = pd.DataFrame(rows)
-            # Automatic five-provider review runs only for fresh confirmed Stage-3 BUY/SELL signals.
-            # API keys stay in Streamlit Secrets; only public-market technical fields are sent.
-            try:
-                ai_secrets = {key: str(st.secrets.get(key, "")) for key in [
-                    "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
-                    "OPENROUTER_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
-                    "GEMINI_CRT_MODEL", "GROQ_CRT_MODEL", "MISTRAL_CRT_MODEL",
-                    "OPENROUTER_CRT_MODEL", "CLOUDFLARE_CRT_MODEL",
-                ]}
-            except Exception:
-                ai_secrets = {}
-            multi_ai_report = run_multi_ai_consensus(result_df, ai_secrets)
-            st.session_state["multi_ai_report"] = multi_ai_report
-            if not result_df.empty:
-                result_df["5-AI Consensus"] = result_df["Symbol"].map(
-                    {symbol: data.get("consensus", "—") for symbol, data in multi_ai_report.get("results", {}).items()}
-                ).fillna("—")
-                result_df["5-AI Votes"] = result_df["Symbol"].map(
-                    {symbol: f"{data.get('buy_votes', 0)} BUY / {data.get('sell_votes', 0)} SELL / {data.get('avoid_votes', 0)} AVOID"
-                     for symbol, data in multi_ai_report.get("results", {}).items()}
-                ).fillna("—")
-                result_df["5-AI Agreement %"] = result_df["Symbol"].map(
-                    {symbol: data.get("agreement_pct") for symbol, data in multi_ai_report.get("results", {}).items()}
-                )
             ensemble_model = st.session_state.get("crt_ensemble_model")
             if ensemble_model is not None and not result_df.empty:
                 result_df = score_crt_signals(ensemble_model, result_df)
@@ -210,38 +185,11 @@ with scanner_tab:
         n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
         st.metric("Missed / Stale Entry (not a fresh signal)", f"{missed_entry_count:,}")
         st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
-        multi_ai_report = st.session_state.get("multi_ai_report", {})
-        if multi_ai_report:
-            with st.expander("🤖 पाँच AI का CRT Consensus", expanded=True):
-                st.info(multi_ai_report.get("message", "Multi-AI status उपलब्ध नहीं है।"))
-                provider_rows = []
-                for provider, detail in multi_ai_report.get("providers", {}).items():
-                    provider_rows.append({"AI": provider, "Status": detail.get("status", "unknown"),
-                                          "Model": detail.get("model", ""),
-                                          "Error": detail.get("error", "")})
-                if provider_rows:
-                    st.dataframe(pd.DataFrame(provider_rows), use_container_width=True, hide_index=True)
-                vote_rows = []
-                for symbol, detail in multi_ai_report.get("results", {}).items():
-                    vote_rows.append({"Symbol": symbol, "Consensus": detail.get("consensus"),
-                                      "Votes": f"{detail.get('buy_votes', 0)} BUY / {detail.get('sell_votes', 0)} SELL / {detail.get('avoid_votes', 0)} AVOID",
-                                      "Agreement %": detail.get("agreement_pct"),
-                                      "Average quality / 5": detail.get("avg_quality")})
-                if vote_rows:
-                    st.dataframe(pd.DataFrame(vote_rows), use_container_width=True, hide_index=True)
-                    for symbol, detail in multi_ai_report.get("results", {}).items():
-                        with st.expander(f"{symbol} · AI के तर्क"):
-                            for vote in detail.get("details", []):
-                                st.markdown(f"**{vote['provider']} — {vote['decision']} · Quality {vote['quality']}/5**")
-                                st.write(vote.get("reason", ""))
-                                if vote.get("risk_flags"):
-                                    st.caption("Risk flags: " + "; ".join(vote["risk_flags"]))
-                st.caption("यह गुणात्मक AI राय है, calibrated success probability नहीं। प्रति scan अधिकतम 15 fresh signals पाँचों providers को भेजे जाते हैं।")
         ensemble_report = st.session_state.get("crt_ensemble_report", {})
         if st.session_state.get("crt_ensemble_model") is not None:
-            st.success("CRT Multi-AI सक्रिय: Random Forest + Extra Trees + Gradient Boosting. Fresh Stage-3 setups पर ensemble probability नीचे दिखाई जाएगी.")
+            st.success("CRT Historical ML Ensemble सक्रिय: Random Forest + Extra Trees + Gradient Boosting. केवल fresh Stage-3 setups पर historical model score दिखेगा।")
         else:
-            st.info("CRT Multi-AI अभी train नहीं है। Backtest टैब में 5-Year BSE Backtest चलाएँ; पर्याप्त historical WIN/LOSS trades मिलने पर ensemble train होगा।")
+            st.info("CRT Historical ML Ensemble अभी train नहीं है। Backtest चलाएँ; पर्याप्त closed historical WIN/LOSS trades मिलने पर model train होगा।")
         latest_daily_date = (
             pd.to_datetime(results["Last Candle"], errors="coerce").max()
             if not results.empty and "Last Candle" in results.columns else pd.NaT
@@ -767,28 +715,15 @@ with ai_tab:
     st.header("🤖 CRT AI Assistant")
     st.caption("अपने CRT Scanner, BUY/SELL setups, Backtest और risk management के बारे में हिंदी में सवाल पूछें। AI केवल उपलब्ध app-data के आधार पर समझाएगा; यह trading execution नहीं करता।")
 
-    with st.expander("🔌 पाँच AI API कनेक्शन और Free Setup", expanded=False):
-        st.write("इन API keys को Streamlit Cloud → App → Settings → Secrets में जोड़ें। GitHub code या README में keys कभी न डालें।")
-        st.code('''GEMINI_API_KEY = "..."
-GROQ_API_KEY = "..."
-MISTRAL_API_KEY = "..."
-OPENROUTER_API_KEY = "..."
-CLOUDFLARE_API_TOKEN = "..."
-CLOUDFLARE_ACCOUNT_ID = "..."''', language="toml")
-        try:
-            setup_secrets = {key: str(st.secrets.get(key, "")) for key in [
-                "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
-                "OPENROUTER_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
-            ]}
-        except Exception:
-            setup_secrets = {}
-        st.dataframe(pd.DataFrame([
-            {"AI Provider": name, "API Key Status": "Configured" if ready else "Key required"}
-            for name, ready in configured_providers(setup_secrets).items()
-        ]), use_container_width=True, hide_index=True)
-        st.markdown("- [Google AI Studio](https://aistudio.google.com/app/apikey) · [Groq Console](https://console.groq.com/keys) · [Mistral Console](https://console.mistral.ai/)\n- [OpenRouter Keys](https://openrouter.ai/keys) · [Cloudflare AI](https://dash.cloudflare.com/)")
-        st.caption("Free tiers पर daily/rate limits लागू हैं। Cloudflare के लिए API Token और Account ID दोनों चाहिए। मॉडल ID providers के अनुसार बदल सकते हैं; जरूरत पर *_CRT_MODEL secret से बदले जा सकते हैं।")
-        st.warning("Gemini और अन्य free providers की data-use शर्तें पढ़ें। केवल public market data भेजा जाता है; API keys कभी scanner output में नहीं दिखतीं।")
+    with st.expander("📨 CRT Telegram Alert Bot — उपलब्ध Python Bot", expanded=True):
+        st.write("Repository में मौजूद `crt_bot.py` और `.github/workflows/crt-bot.yml` इस्तेमाल होते हैं। यह हर 30 मिनट (GitHub Actions schedule best-effort) BSE EQ शेयरों में केवल confirmed Stage-3 CRT BUY/SELL setup खोजकर Telegram पर alert भेजता है।")
+        st.markdown("[GitHub Actions में Bot को manually चलाएँ](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/actions/workflows/crt-bot.yml)")
+        st.markdown("[Bot Python code देखें](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/blob/main/crt_bot.py)")
+        st.markdown("[Schedule workflow देखें](https://github.com/nsdlshahpur-wq/india-crt-setup-scanner/blob/main/.github/workflows/crt-bot.yml)")
+        st.write("GitHub → Repository → Settings → Secrets and variables → Actions में ये secrets जोड़ें:")
+        st.code("TELEGRAM_BOT_TOKEN = your_telegram_bot_token\nTELEGRAM_CHAT_ID = your_telegram_chat_id\nOPENAI_API_KEY = optional_openai_key", language="text")
+        st.caption("Telegram alerts के लिए पहले दो secrets जरूरी हैं। OPENAI_API_KEY केवल वैकल्पिक Hindi AI summary के लिए है। कोई broker order place नहीं होता।")
+        st.warning("ध्यान दें: मौजूदा scheduled bot BSE EQ shares scan करता है; यह NIFTY 50 index-only bot नहीं है।")
 
     def _get_gemini_key():
         key = os.getenv("GEMINI_API_KEY", "").strip()
