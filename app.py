@@ -728,12 +728,19 @@ with ai_tab:
                 model_candidates = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
                 for model_name in model_candidates:
                     for attempt in range(3):
-                        response = requests.post(
-                            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
-                            headers={"x-goog-api-key": gemini_key, "Content-Type": "application/json"},
-                            json=payload,
-                            timeout=45,
-                        )
+                        try:
+                            response = requests.post(
+                                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
+                                headers={"x-goog-api-key": gemini_key, "Content-Type": "application/json"},
+                                json=payload,
+                                timeout=(15, 120),
+                            )
+                        except requests.Timeout as timeout_exc:
+                            last_error = f"Request timeout: {timeout_exc}"
+                            if attempt < 2:
+                                time.sleep(2 * (attempt + 1))
+                                continue
+                            break
                         if response.ok:
                             body = response.json()
                             answer = "".join(
