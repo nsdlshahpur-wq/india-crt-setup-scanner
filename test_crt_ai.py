@@ -18,3 +18,10 @@ def test_small_sample_is_not_scored():
     result = train_crt_model(trades)
     assert result.model is None
     assert result.report["status"] == "insufficient_data"
+
+from crt_ai import _zones
+
+
+def test_zone_flags_do_not_overlap():
+    flags = _zones("IFVG+BOB")
+    assert flags == {"zone_fvg": 0.0, "zone_ifvg": 1.0, "zone_ob": 0.0, "zone_bob": 1.0}
