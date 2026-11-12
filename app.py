@@ -25,7 +25,7 @@ with st.sidebar:
         "Market universe",
         ["All India stocks + indices", "All Stocks", "All Index"],
         index=0,
-        help="All India stocks + indices: NSE EQ + BSE EQ stocks and mapped Indian indices. All Stocks: NSE EQ only. All Index: mapped indices only. Large scans can take several minutes and some Yahoo tickers may be unavailable.",
+        help="All India stocks + indices: NSE EQ/SME + BSE listed equities and mapped Indian indices. All Stocks: NSE EQ only. All Index: mapped indices only. Large scans can take several minutes and some Yahoo tickers may be unavailable.",
     )
     history_period = st.selectbox("Daily history", ["1y", "2y", "3y", "5y"], index=0)
     st.divider()
@@ -546,11 +546,11 @@ with backtest_tab:
                  bt_prices, bt_errors = download_market_data(
                      symbols, period="5y", batch_size=80, progress_callback=bt_download_progress
                  )
-                 st.session_state["_bse_backtest_data"] = {
+                 st.session_state["_all_india_backtest_data"] = {
                      "key": bt_cache_key, "prices": bt_prices, "errors": bt_errors
                  }
              if not bt_prices:
-                 st.error("Yahoo Finance से कोई BSE OHLC data नहीं मिला।")
+                 st.error("Yahoo Finance से कोई India market OHLC data नहीं मिला।")
                  st.stop()
              st.info(f"Historical OHLC received for **{len(bt_prices):,}** symbols. अब daily as-of CRT simulation चल रहा है।")
              sim_progress = st.progress(0.0, text="Running no-look-ahead simulation...")
