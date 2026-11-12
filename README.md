@@ -110,20 +110,11 @@ or source control, revoke it and create a replacement. The assistant uses
 - All model probabilities are research estimates, not calibrated guarantees or order signals. Current exchange constituents and Yahoo Finance coverage have survivorship/data-quality limitations. Validate out-of-sample and in paper trading before relying on them.
 
 
-## Five-provider free-tier CRT AI consensus
+## Simplified AI setup
 
-- A scan automatically requests a qualitative second opinion for fresh Stage-3 BUY/SELL signals from Gemini, Groq, Mistral, OpenRouter free-model routing and Cloudflare Workers AI.
-- The first version reviews up to 15 fresh signals per scan to protect free-tier quotas. Calls run concurrently; one provider failing does not stop the scanner or the other providers.
-- It shows each provider's BUY/SELL/AVOID vote, reason, risk flags and a majority consensus. Consensus agreement is NOT a success probability and never changes the deterministic CRT setup, the three-classifier ML probability, or places orders.
-- Add provider credentials only in Streamlit Cloud → App → Settings → Secrets. TOML entries:
-  GEMINI_API_KEY = "..."
-  GROQ_API_KEY = "..."
-  MISTRAL_API_KEY = "..."
-  OPENROUTER_API_KEY = "..."
-  CLOUDFLARE_API_TOKEN = "..."
-  CLOUDFLARE_ACCOUNT_ID = "..."
-- Free-tier model IDs can change. Optional model overrides are GEMINI_CRT_MODEL, GROQ_CRT_MODEL, MISTRAL_CRT_MODEL, OPENROUTER_CRT_MODEL and CLOUDFLARE_CRT_MODEL.
-- Defaults: Gemini Flash-Lite, Groq GPT-OSS-120B, Mistral Small, OpenRouter free-model router and Cloudflare Llama 3.3. Check each provider's current model catalogue, free quota and terms before use. Free APIs are rate-limited, not guaranteed production services.
-- Claude and ChatGPT are not included as free API providers: consumer subscriptions do not include unlimited API usage. They can be added later if an API key and budget are available.
-- Only public-market technical fields for selected symbols are sent; do not add account credentials, personal data or broker information. Some free tiers may retain prompts or use them to improve provider services; review each provider's data terms.
-- The scanner remains usable without any of these keys. If no key is configured, or a provider reaches its quota, the app reports its status and keeps the CRT scan available.
+- The in-app **CRT AI Assistant** uses one Gemini model for Hindi explanations of the strategy and current scan/backtest data. Add only `GEMINI_API_KEY` in Streamlit Cloud → App → Settings → Secrets.
+- The historical CRT outcome model is separate from the chat assistant: it uses Random Forest, Extra Trees and Histogram Gradient Boosting only after enough closed backtest trades are available. These are local ML classifiers, not external AI APIs.
+- The existing `crt_bot.py` is the scheduled alert bot. It scans BSE EQ symbols for fresh confirmed Stage-3 CRT setups and can send Telegram alerts. Optional `OPENAI_API_KEY` adds a short Hindi summary to the Telegram alert; the bot still works without this optional summary.
+- The unused five-provider consensus integration (Groq, Mistral, OpenRouter and Cloudflare alongside Gemini) has been removed from the app to avoid multiple failing API connections, quota issues and unnecessary setup.
+- No component places broker orders. AI text and model scores are research aids, not guaranteed predictions.
+
