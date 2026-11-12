@@ -724,10 +724,8 @@ with ai_tab:
             try:
                 answer = ""
                 last_error = ""
-                # Retry temporary capacity/rate errors, then fall back to the
-                # lighter stable model so brief Gemini 3.8 capacity spikes do
-                # not repeatedly break the in-app assistant.
-                model_candidates = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+                # Prefer the lighter stable model for availability; use Flash as fallback.
+                model_candidates = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
                 for model_name in model_candidates:
                     for attempt in range(3):
                         response = requests.post(
