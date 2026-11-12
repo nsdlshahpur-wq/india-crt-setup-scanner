@@ -40,6 +40,7 @@ def download_dhan_market_data(
             wait = min_request_interval - (time.monotonic() - last_request)
             if last_request and wait > 0:
                 time.sleep(wait)
+            last_request = time.monotonic()
             prices = fetch_dhan_daily_ohlc(
                 instrument["security_id"],
                 access_token,
@@ -48,7 +49,6 @@ def download_dhan_market_data(
                 exchange_segment=instrument["exchange_segment"],
                 instrument=instrument["instrument"],
             )
-            last_request = time.monotonic()
             if prices.empty:
                 errors[symbol] = "Dhan returned no daily OHLC candles for this instrument."
             else:
