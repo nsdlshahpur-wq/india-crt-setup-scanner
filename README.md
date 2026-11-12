@@ -4,7 +4,7 @@ A single-page Streamlit dashboard for the Monthly (1M) → Daily (1D) CRT strate
 
 ## Dashboard
 
-The app navigation intentionally contains only **app**. The separate Monthly-Daily rulebook, backtesting, watchlist/alerts, trade journal, AI assistant, broker connections and AI Strong CRT pages have been removed, along with their page-specific Python modules and tests.
+The app navigation intentionally contains only **app**. The main dashboard includes the CRT scanner and an integrated CRT AI Assistant for rule-by-rule setup verification. Backtesting, watchlist/alerts, trade journal and broker order execution are not enabled.
 
 ## Strategy overview
 
@@ -37,7 +37,7 @@ python -m streamlit run app.py
 
 ## Streamlit Community Cloud
 
-Deploy this repository with branch `main` and main file `app.py`. No broker token or AI API key is required.
+Deploy this repository with branch `main` and main file `app.py`. The rule-based CRT verification works without an API key. For natural-language AI explanations, add `OPENAI_API_KEY` in Streamlit Community Cloud → App settings → Secrets (or as an environment variable locally). Optional model override: `CRT_AI_MODEL` (default `gpt-4o-mini`). Never commit API keys to GitHub.
 
 ## Validation
 
@@ -46,7 +46,7 @@ GitHub Actions runs Python compilation and offline pytest checks on pushes and p
 ## Main files
 
 - `app.py` — single-page Streamlit dashboard.
-- `scanner.py` — Monthly sweep/reclaim, Daily CHoCH, FVG/IFVG/OB/BOB zones, retest, entry and outcome logic.
+- `scanner.py` — Monthly sweep/reclaim, Daily CHoCH, FVG/IFVG/OB/BOB zones, retest, entry and outcome logic.\n- `crt_ai_assistant.py` — rule-grounded setup verification and optional OpenAI explanation.
 - `data_fetch.py` — Yahoo Finance daily OHLC downloader.
 - `universe.py` — NSE/BSE stock and index universe.
 - `test_scanner.py`, `test_crt_strategy_rules.py`, `test_choch_reference.py`, `test_data_fetch.py`, `test_app.py` — core scanner tests.

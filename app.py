@@ -8,6 +8,7 @@ import streamlit as st
 
 from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
+from crt_ai_assistant import verify_setup, explain_setup
 from universe import make_universe
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
@@ -18,7 +19,7 @@ with st.sidebar:
     st.header("Scanner Settings")
     universe_mode = st.selectbox(
         "Market universe",
-        ["All Stocks", "All Index"],
+        ["All Stocks", "All Index", "All Stocks + Index"],
         index=0,
         help="All Stocks: NSE main-board EQ shares. BSE duplicate listings and SME scrips are excluded to keep the scan fast. All Index: only indices with a Yahoo Finance ticker mapping.",
     )
@@ -47,6 +48,7 @@ def _load_universe(mode: str) -> pd.DataFrame:
     source_mode = {
         "All Stocks": "All NSE EQ stocks",
         "All Index": "All Indian indices",
+        "All Stocks + Index": "All India stocks + indices",
     }[mode]
     return make_universe(source_mode)
 
@@ -466,6 +468,51 @@ if "scan_results" in st.session_state:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("इस symbol के लिए OHLC chart columns उपलब्ध नहीं हैं।")
+
+    # CRT AI Assistant: rule-by-rule audit of every detected index/stock setup.
+    with st.expander("🤖 CRT AI Assistant — Setup सही है या नहीं?", expanded=True):
+        if results.empty:
+            st.info("पहले Scan market चलाएँ।")
+        else:
+            audited = results.copy()
+            audit_rows = [verify_setup(row.to_dict()) for _, row in audited.iterrows()]
+            audited["AI Verdict"] = [a["status"] for a in audit_rows]
+            valid_n = sum(a["status"] == "VALID — CONFIRMED" for a in audit_rows)
+            wait_n = sum(a["status"] == "INCOMPLETE — WAIT" for a in audit_rows)
+            invalid_n = sum(a["status"] == "INVALID / NO CRT SETUP" for a in audit_rows)
+            amb_n = sum(a["status"] == "AMBIGUOUS — NO TRADE" for a in audit_rows)
+            a1, a2, a3, a4 = st.columns(4)
+            a1.metric("Valid confirmed", valid_n)
+            a2.metric("Wait / incomplete", wait_n)
+            a3.metric("Invalid / no setup", invalid_n)
+            a4.metric("Ambiguous — avoid", amb_n)
+            st.caption("यह बॉट हर scanned symbol पर M1/M2 sweep-reclaim, M3 CHoCH, zone, retest-confirmation और Entry/SL/Target की जाँच करता है।")
+            audit_view = audited[["Symbol", "Name", "Exchange", "Setup", "AI Verdict", "Last Candle"]].copy()
+            st.dataframe(audit_view, use_container_width=True, hide_index=True)
+            choices = audited["Symbol"].astype(str).tolist()
+            selected_ai_symbol = st.selectbox(
+                "किस Index / Stock का CRT audit देखें?",
+                choices,
+                format_func=lambda s: f"{s} — {str(audited.loc[audited['Symbol'].astype(str) == s, 'Name'].iloc[0])}",
+                key="crt_ai_symbol",
+            )
+            selected_ai_row = audited[audited["Symbol"].astype(str) == selected_ai_symbol].iloc[0]
+            selected_ai_dict = selected_ai_row.to_dict()
+            selected_audit = verify_setup(selected_ai_dict)
+            st.markdown(f"### {selected_ai_row.get('Name', selected_ai_symbol)} · {selected_audit['status']}")
+            for check_name, passed, detail in selected_audit["checks"]:
+                st.write(("✅ " if passed else "⏳ ") + f"**{check_name}:** {detail}")
+            st.write(f"**Setup reason:** {selected_audit['reason'] or 'अभी कोई confirmed reason उपलब्ध नहीं।'}")
+            st.write(f"**Entry:** {selected_ai_row.get('Entry', '—')} · **SL:** {selected_ai_row.get('SL', '—')} · **M1 Target:** {selected_ai_row.get('Target (M1 Monthly H/L)', '—')}")
+            ai_question = st.text_input(
+                "इस setup के बारे में सवाल पूछें",
+                placeholder="जैसे: यह setup valid क्यों है? CHoCH confirm हुआ है?",
+                key="crt_ai_question",
+            )
+            if st.button("🤖 AI से विश्लेषण पूछें", key="crt_ai_analyse"):
+                with st.spinner("CRT rules की जाँच हो रही है..."):
+                    st.markdown(explain_setup(selected_ai_dict, ai_question))
+            st.caption("OpenAI API key सेट होने पर भाषा-आधारित AI explanation चालू होगी। बिना key के बॉट नियम-आधारित verification देता है। यह निवेश सलाह या profit guarantee नहीं है।")
 
     errors = st.session_state.get("scan_errors", {})
     if errors:
