@@ -733,6 +733,15 @@ with ai_tab:
                     part.get("text", "")
                     for part in body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                 ).strip() or "AI से खाली उत्तर मिला। कृपया दोबारा पूछें।"
+            except requests.HTTPError as exc:
+                detail = ""
+                try:
+                    detail = response.text[:500]
+                except Exception:
+                    pass
+                answer = f"Gemini API HTTP error: {exc}. {detail}"
+            except Exception as exc:
+                answer = f"Gemini सेवा से उत्तर नहीं मिला: {type(exc).__name__}: {str(exc)[:300]}"
         st.session_state["crt_ai_messages"].append({"role": "assistant", "content": answer})
         with st.chat_message("assistant"):
             st.markdown(answer)
