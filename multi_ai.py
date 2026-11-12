@@ -35,7 +35,9 @@ def _call(name,cfg,secrets,prompt):
   payload={"model":model,"temperature":0.1,"max_tokens":4000,"messages":[{"role":"system","content":SYSTEM},{"role":"user","content":prompt}]}
   r=requests.post(url,headers=headers,json=payload,timeout=(10,45)); r.raise_for_status()
   answer=r.json().get("choices",[{}])[0].get("message",{}).get("content","")
- data=json.loads(str(answer).strip())
+ raw=str(answer).strip()
+ if raw.startswith(chr(96)*3): raw=raw.split("\\n",1)[-1].rsplit(chr(96)*3,1)[0].strip()
+ data=json.loads(raw)
  if not isinstance(data.get("signals"),list): raise ValueError("Invalid JSON response")
  return data["signals"]
 def run_multi_ai_consensus(frame,secrets):
@@ -71,6 +73,8 @@ def run_multi_ai_consensus(frame,secrets):
    try: results[n]={"status":"ok","signals":job.result()}
    except Exception as e: results[n]={"status":"error","error":type(e).__name__+": "+str(e)[:250]}
  out["providers"]={n:results.get(n,{"status":"not_configured"}) for n in PROVIDERS}
+ for n,cfg in PROVIDERS.items():
+  if n in results: out["providers"][n]["model"]=_get(secrets,n.upper()+"_CRT_MODEL") or cfg[2]
  for row in rows:
   sym=row["Symbol"]; votes=[]
   for provider,res in results.items():
