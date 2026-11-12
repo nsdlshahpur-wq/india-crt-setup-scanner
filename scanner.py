@@ -492,6 +492,16 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
                 entry_status = "MISSED - NO FRESH ENTRY"
 
     bias = "Bullish" if direction == 1 else ("Bearish" if direction == -1 else "Neutral")
+    sweep_type = (
+        "Sell-Side Liquidity Sweep (SSS)" if direction == 1
+        else "Buy-Side Liquidity Sweep (BSL)" if direction == -1
+        else "No confirmed sweep"
+    )
+    choch_rule = (
+        f"Daily close {'above' if direction == 1 else 'below'} confirmed pivot {choch_reference_level:.2f}"
+        if direction and pd.notna(choch_reference_level)
+        else "Daily CHoCH not confirmed"
+    )
     if stage == 3:
         setup = "BUY" if direction == 1 else "SELL"
         entry_status = "TRIGGERED"
@@ -528,6 +538,24 @@ def scan_symbol(symbol: str, name: str, raw_data: pd.DataFrame, config: ScanConf
         ),
         "Target (M1 Monthly H/L)": target, "Target Status": target_status,
         "Monthly Status": ctx["monthly_status"],
+        "Sweep Type": sweep_type,
+        "Setup Reason": (
+            f"{'Bullish' if direction == 1 else 'Bearish'} M2 liquidity sweep reclaimed inside M1 range; "
+            f"{choch_rule}; "
+            + (f"{entry_zone_type} retest at {zone_low:.2f}-{zone_high:.2f} followed by directional Daily close."
+               if stage in {3, 4, 5, 6, 7, 8, 9} and pd.notna(zone_low) and pd.notna(zone_high)
+               else ("CHoCH confirmed; waiting for a valid FVG/IFVG/OB/BOB retest and Daily confirmation."
+                     if stage == 2 else
+                     "Monthly sweep found; waiting for a confirmed Daily CHoCH." if stage == 1 else
+                     "No fresh valid CRT entry under the current completed-candle rules."))
+        ),
+        "CHoCH Rule": choch_rule,
+        "Entry Confirmation Rule": (
+            "Zone retest, then bullish Daily close above zone high"
+            if direction == 1 else
+            "Zone retest, then bearish Daily close below zone low"
+            if direction == -1 else "Not applicable"
+        ),
         "Invalidation": ctx["m1_low"] if direction == 1 else (ctx["m1_high"] if direction == -1 else np.nan),
         "M1 High": ctx["m1_high"], "M1 Low": ctx["m1_low"],
         "M2 High": ctx["m2_high"], "M2 Low": ctx["m2_low"], "M2 Close": ctx["m2_close"],
