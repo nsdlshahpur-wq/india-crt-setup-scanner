@@ -21,8 +21,8 @@ PAIR_SPECS = [
      "ltf_period": "60d", "ltf_interval": "60m"},
     {"HTF": "4H", "LTF": "5m", "htf_period": "60d", "htf_interval": "60m",
      "htf_resample": "4h", "ltf_period": "60d", "ltf_interval": "5m"},
-    {"HTF": "1H", "LTF": "1m", "htf_period": "60d", "htf_interval": "60m",
-     "ltf_period": "7d", "ltf_interval": "1m"},
+    {"HTF": "1H", "LTF": "5m", "htf_period": "60d", "htf_interval": "60m",
+     "ltf_period": "60d", "ltf_interval": "5m"},
 ]
 
 CONFIG = ScanConfig()
