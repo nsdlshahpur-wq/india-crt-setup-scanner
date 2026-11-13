@@ -1104,8 +1104,8 @@ with mtf_tab:
         if not results_mtf.empty:
             signal_filter = st.multiselect(
                 "Signal filter",
-                ["BULL ORDER", "BEAR ORDER", "WAIT"],
-                default=["BULL ORDER", "BEAR ORDER", "WAIT"],
+                ["BULL WATCH", "BEAR WATCH", "WAIT"],
+                default=["BULL WATCH", "BEAR WATCH", "WAIT"],
                 key="crt_mtf_signal_filter",
             )
             visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
@@ -1130,10 +1130,11 @@ with mtf_tab:
                     use_container_width=True, hide_index=True
                 )
         st.caption(
-            "Yahoo Finance data unofficial/delayed हो सकता है। 1H history सीमित है; 4H, 1H से "
-            "और Weekly/Monthly, Daily candles से resample होते हैं। नवीनतम संभावित incomplete "
-            "candle हटाई जाती है। यह अभी timeframe-wise Pine f_tfStatus dashboard है, complete "
-            "HTF→LTF entry confirmation या broker order execution नहीं।"
+            "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→15m, 4H→5m और 1H→1m. "
+            "BULL/BEAR WATCH तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS मिले। "
+            "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
+            "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
+            "नवीनतम संभावित incomplete candle analysis से हटाई जाती है।"
         )
     except Exception as exc:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
