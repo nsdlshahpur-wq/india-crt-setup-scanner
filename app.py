@@ -15,6 +15,7 @@ from scanner import ScanConfig, scan_symbol
 from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from crt_ai import train_crt_model, score_crt_signals
+from mtf_analysis import analyze_mtf_symbol
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -41,7 +42,7 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
-scanner_tab, backtest_tab, ai_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest", "🤖 CRT AI Assistant"]) 
+scanner_tab, backtest_tab, ai_tab, mtf_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest", "🤖 CRT AI Assistant", "🧭 CRT MTF Analysis"]) 
 
 with scanner_tab:
     col_a, col_b = st.columns([1, 4])
@@ -1018,3 +1019,50 @@ with ai_tab:
     if st.button("🗑️ Clear AI conversation", key="clear_crt_ai"):
         st.session_state["crt_ai_messages"] = []
         st.rerun()
+
+
+with mtf_tab:
+    st.header("🧭 CRT Multiple Time Frame Analysis")
+    st.caption(
+        "Supplied Pine Script के MTF dashboard का Python implementation. "
+        "यह केवल analysis panel है; मौजूदा CRT Scanner और Backtest के नियम नहीं बदलता।"
+    )
+    st.info(
+        "Pine Script mapping: 1H, 4H, Daily, Weekly और Monthly. "
+        "हर timeframe पर completed candle के आधार पर Liquidity Sweep, MSS/MSB, OB/BB और Signal दिखेगा."
+    )
+    mtf_symbol = st.text_input(
+        "Symbol / Yahoo ticker",
+        value="^NSEI",
+        help="उदाहरण: ^NSEI (NIFTY 50), ^NSEBANK (BANK NIFTY), RELIANCE.NS",
+        key="crt_mtf_symbol",
+    )
+    run_mtf = st.button("🔍 Run MTF Analysis", type="primary", key="run_crt_mtf")
+    if run_mtf:
+        if not mtf_symbol.strip():
+            st.warning("कृपया Symbol दर्ज करें।")
+        else:
+            with st.spinner(f"{mtf_symbol.strip()} के सभी timeframes का data जाँचा जा रहा है..."):
+                mtf_df, mtf_errors = analyze_mtf_symbol(mtf_symbol.strip())
+            st.session_state["crt_mtf_result"] = mtf_df
+            st.session_state["crt_mtf_errors"] = mtf_errors
+            st.session_state["crt_mtf_symbol_last"] = mtf_symbol.strip()
+
+    if "crt_mtf_result" in st.session_state:
+        st.subheader(f"Analysis: {st.session_state.get('crt_mtf_symbol_last', '')}")
+        mtf_view = st.session_state["crt_mtf_result"].copy()
+        st.dataframe(mtf_view, use_container_width=True, hide_index=True)
+        errors = st.session_state.get("crt_mtf_errors", {})
+        if errors:
+            with st.expander("Data availability / errors"):
+                for timeframe, message in errors.items():
+                    st.write(f"**{timeframe}:** {message}")
+        st.caption(
+            "ध्यान दें: Yahoo Finance में 1H का सीमित इतिहास उपलब्ध होता है; 4H को 1H candles से "
+            "resample किया जाता है और Weekly/Monthly को Daily candles से बनाया जाता है. "
+            "नवीनतम candle को संभावित incomplete होने के कारण analysis से हटाया जाता है. "
+            "यह Pine Script के f_tfStatus() dashboard logic का port है, complete Pine strategy "
+            "execution या broker order नहीं है."
+        )
+    else:
+        st.write("Symbol दर्ज करके Run MTF Analysis दबाएँ।")
