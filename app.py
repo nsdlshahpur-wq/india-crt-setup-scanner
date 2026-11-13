@@ -1130,7 +1130,7 @@ with mtf_tab:
                         use_container_width=True, hide_index=True
                     )
             st.caption(
-                "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→15m, 4H→5m और 1H→1m. "
+                "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→1m. "
                 "BULL/BEAR WATCH तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS मिले। "
                 "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
                 "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
