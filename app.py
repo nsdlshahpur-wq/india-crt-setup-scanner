@@ -1098,43 +1098,43 @@ with mtf_tab:
             st.session_state["crt_mtf_scan_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
             status.success("Selected symbols का scan पूरा हुआ।")
 
-    if "crt_mtf_results" in st.session_state:
-        results_mtf = st.session_state["crt_mtf_results"].copy()
-        st.subheader("MTF Scan Results")
-        if not results_mtf.empty:
-            signal_filter = st.multiselect(
-                "Signal filter",
-                ["BULL WATCH", "BEAR WATCH", "WAIT"],
-                default=["BULL WATCH", "BEAR WATCH", "WAIT"],
-                key="crt_mtf_signal_filter",
-            )
-            visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
-            st.dataframe(visible_mtf, use_container_width=True, hide_index=True)
-            csv = visible_mtf.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "⬇️ Download MTF results (CSV)", csv,
-                file_name="crt_mtf_scan_results.csv", mime="text/csv"
-            )
-        else:
-            st.warning("चुने गए symbols के लिए Yahoo Finance से usable MTF data नहीं मिला।")
-        errors = st.session_state.get("crt_mtf_errors", {})
-        st.caption(
-            f"Scanned symbols: {st.session_state.get('crt_mtf_selected_count', 0):,} · "
-            f"Data errors: {len(errors):,} · "
-            f"Time: {st.session_state.get('crt_mtf_scan_time', '')}"
-        )
-        if errors:
-            with st.expander("Data availability / errors"):
-                st.dataframe(
-                    pd.DataFrame([{"Symbol": k, "Error": v} for k, v in errors.items()]),
-                    use_container_width=True, hide_index=True
+        if "crt_mtf_results" in st.session_state:
+            results_mtf = st.session_state["crt_mtf_results"].copy()
+            st.subheader("MTF Scan Results")
+            if not results_mtf.empty:
+                signal_filter = st.multiselect(
+                    "Signal filter",
+                    ["BULL WATCH", "BEAR WATCH", "WAIT"],
+                    default=["BULL WATCH", "BEAR WATCH", "WAIT"],
+                    key="crt_mtf_signal_filter",
                 )
-        st.caption(
-            "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→15m, 4H→5m और 1H→1m. "
-            "BULL/BEAR WATCH तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS मिले। "
-            "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
-            "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
-            "नवीनतम संभावित incomplete candle analysis से हटाई जाती है।"
-        )
+                visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
+                st.dataframe(visible_mtf, use_container_width=True, hide_index=True)
+                csv = visible_mtf.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "⬇️ Download MTF results (CSV)", csv,
+                    file_name="crt_mtf_scan_results.csv", mime="text/csv"
+                )
+            else:
+                st.warning("चुने गए symbols के लिए Yahoo Finance से usable MTF data नहीं मिला।")
+            errors = st.session_state.get("crt_mtf_errors", {})
+            st.caption(
+                f"Scanned symbols: {st.session_state.get('crt_mtf_selected_count', 0):,} · "
+                f"Data errors: {len(errors):,} · "
+                f"Time: {st.session_state.get('crt_mtf_scan_time', '')}"
+            )
+            if errors:
+                with st.expander("Data availability / errors"):
+                    st.dataframe(
+                        pd.DataFrame([{"Symbol": k, "Error": v} for k, v in errors.items()]),
+                        use_container_width=True, hide_index=True
+                    )
+            st.caption(
+                "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→15m, 4H→5m और 1H→1m. "
+                "BULL/BEAR WATCH तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS मिले। "
+                "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
+                "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
+                "नवीनतम संभावित incomplete candle analysis से हटाई जाती है।"
+            )
     except Exception as exc:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
