@@ -1027,13 +1027,19 @@ with mtf_tab:
         "Index और Stocks की सूची से एक या कई symbols चुनकर CRT MTF scan करें. "
         "मौजूदा CRT Scanner और Backtest के नियम इससे नहीं बदलते।"
     )
-    mtf_universe_mode = st.selectbox(
-        "किसका MTF scan करना है?",
-        ["All Indian indices", "All NSE EQ stocks", "All India stocks + indices"],
-        index=0,
+    mtf_universe_mode = st.radio(
+        "किस सूची को स्कैन करना है? (क्लिक करें)",
+        ["All Index", "All Stocks", "All India Stocks + Indices"],
+        horizontal=True,
         key="crt_mtf_universe_mode",
-        help="All India stocks + indices में NSE, BSE, SME stocks और mapped indices शामिल हैं।"
+        help="All Index = mapped Indian indices; All Stocks = NSE EQ stocks; All India Stocks + Indices = NSE, BSE, SME और mapped indices."
     )
+    mtf_mode_map = {
+        "All Index": "All Indian indices",
+        "All Stocks": "All NSE EQ stocks",
+        "All India Stocks + Indices": "All India stocks + indices",
+    }
+    mtf_universe_mode = mtf_mode_map[mtf_universe_mode]
 
     @st.cache_data(ttl=1800, show_spinner=False)
     def _load_mtf_universe(mode: str) -> pd.DataFrame:
@@ -1049,9 +1055,15 @@ with mtf_tab:
             f"{row.Name} | {row.Exchange} | {row.Symbol}": row.Symbol
             for row in mtf_universe.itertuples(index=False)
         }
+        all_mtf_labels = list(mtf_labels.keys())
+        select_col, clear_col = st.columns(2)
+        if select_col.button(f"☑️ इस सूची के सभी चुनें ({len(all_mtf_labels):,})", key="mtf_select_all"):
+            st.session_state["crt_mtf_selected_symbols"] = all_mtf_labels
+        if clear_col.button("चयन हटाएँ", key="mtf_clear_selection"):
+            st.session_state["crt_mtf_selected_symbols"] = []
         selected_labels = st.multiselect(
-            "Index / Stock चुनें (search करके भी चुन सकते हैं)",
-            options=list(mtf_labels.keys()),
+            "Index / Stock चुनें (नाम सर्च करके भी चुन सकते हैं)",
+            options=all_mtf_labels,
             key="crt_mtf_selected_symbols",
             placeholder="जैसे NIFTY 50, RELIANCE, HDFC BANK..."
         )
