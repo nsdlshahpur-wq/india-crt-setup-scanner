@@ -1150,10 +1150,14 @@ with mtf_tab:
                     "Entry Time": visible_mtf["Entry Time"],
                     "Decision": visible_mtf.apply(_decision_label, axis=1),
                     "Signal": visible_mtf["Signal"],
-                    "HTF Close": visible_mtf["HTF Close"],
-                    "HTF Candle": visible_mtf["HTF Candle"],
-                    "LTF Close": visible_mtf["LTF Close"],
-                    "LTF Candle": visible_mtf["LTF Candle"],
+                    "HTF Close / Candle": visible_mtf.apply(
+                        lambda r: f"{r['HTF Close']} · {r['HTF Candle']}"
+                        if pd.notna(r["HTF Close"]) and pd.notna(r["HTF Candle"]) else "—", axis=1
+                    ),
+                    "LTF Close / Candle": visible_mtf.apply(
+                        lambda r: f"{r['LTF Close']} · {r['LTF Candle']}"
+                        if pd.notna(r["LTF Close"]) and pd.notna(r["LTF Candle"]) else "—", axis=1
+                    ),
                 })
                 st.dataframe(compact_mtf, use_container_width=True, hide_index=True)
                 csv = compact_mtf.to_csv(index=False).encode("utf-8-sig")
