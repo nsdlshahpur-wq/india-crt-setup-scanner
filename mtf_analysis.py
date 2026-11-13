@@ -1,12 +1,13 @@
-"""CRT multi-timeframe status analysis ported from the supplied Pine Script.
+"""Higher-timeframe to lower-timeframe CRT confirmation scanner.
 
-This module is informational only. It does not alter scanner.py or backtest.py.
-The Pine f_tfStatus() rule is applied to completed candles for 1H, 4H, Daily,
-Weekly and Monthly. Yahoo Finance intraday history is limited and may be absent.
+Pairs: Monthly->Daily, Weekly->4H, Daily->15m, 4H->5m, 1H->1m.
+A pair confirms only when the completed HTF and LTF candles both show a
+same-direction liquidity sweep/reclaim plus close beyond the prior candle
+range. This is a conservative sweep/MSS confirmation, not a full FVG/OB
+retest engine or broker execution system.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -14,12 +15,17 @@ import yfinance as yf
 
 from data_fetch import yahoo_ticker
 
-TIMEFRAMES = [
-    {"label": "1H", "interval": "60m", "period": "60d"},
-    {"label": "4H", "interval": "60m", "period": "60d", "resample": "4h"},
-    {"label": "Daily", "interval": "1d", "period": "2y"},
-    {"label": "Weekly", "interval": "1wk", "period": "5y"},
-    {"label": "Monthly", "interval": "1mo", "period": "10y"},
+PAIR_SPECS = [
+    {"HTF": "Monthly", "LTF": "1D", "htf_interval": "1mo", "htf_period": "10y",
+     "ltf_interval": "1d", "ltf_period": "2y"},
+    {"HTF": "Weekly", "LTF": "4H", "htf_interval": "1wk", "htf_period": "5y",
+     "ltf_interval": "60m", "ltf_period": "60d", "ltf_resample": "4h"},
+    {"HTF": "Daily", "LTF": "15m", "htf_interval": "1d", "htf_period": "2y",
+     "ltf_interval": "15m", "ltf_period": "60d"},
+    {"HTF": "4H", "LTF": "5m", "htf_interval": "60m", "htf_period": "60d",
+     "htf_resample": "4h", "ltf_interval": "5m", "ltf_period": "60d"},
+    {"HTF": "1H", "LTF": "1m", "htf_interval": "60m", "htf_period": "60d",
+     "ltf_interval": "1m", "ltf_period": "7d"},
 ]
 
 
@@ -30,113 +36,114 @@ def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
     data.columns = [str(c).title() for c in data.columns]
-    required = ["Open", "High", "Low", "Close"]
-    if not all(c in data.columns for c in required):
+    cols = ["Open", "High", "Low", "Close"]
+    if not all(c in data.columns for c in cols):
         return pd.DataFrame()
-    data = data[required].copy()
+    data = data[cols].copy()
     data.index = pd.to_datetime(data.index)
     if getattr(data.index, "tz", None) is not None:
         data.index = data.index.tz_localize(None)
-    data = data[~data.index.duplicated(keep="last")].sort_index()
-    return data.apply(pd.to_numeric, errors="coerce").dropna()
+    return data[~data.index.duplicated(keep="last")].sort_index().apply(
+        pd.to_numeric, errors="coerce"
+    ).dropna()
 
 
-def _status(frame: pd.DataFrame, label: str) -> dict[str, Any]:
-    # Exclude the newest candle: it may still be forming and must not create a signal.
-    data = _clean_ohlc(frame)
-    if len(data) > 1:
-        data = data.iloc[:-1]
-    if len(data) < 2:
-        return {
-            "Timeframe": label, "Liquidity Sweep": "DATA UNAVAILABLE",
-            "MSS/MSB": "—", "OB/BB": "—", "Signal": "WAIT",
-            "Last Close": None, "Updated": None,
-        }
+def _resample(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    return frame.resample(rule, label="right", closed="right").agg({
+        "Open": "first", "High": "max", "Low": "min", "Close": "last"
+    }).dropna()
 
-    previous = data.iloc[-2]
-    current = data.iloc[-1]
-    bull_sweep = current["Low"] < previous["Low"] and current["Close"] > previous["Low"]
-    bear_sweep = current["High"] > previous["High"] and current["Close"] < previous["High"]
-    sweep = "BULL" if bull_sweep else "BEAR" if bear_sweep else "—"
 
-    # Mirrors the supplied Pine f_tfStatus() expression.
-    mss_active = (bull_sweep or bear_sweep) and (
-        current["Close"] > previous["High"] or current["Close"] < previous["Low"]
+def _download(ticker: str, period: str, interval: str) -> pd.DataFrame:
+    raw = yf.download(
+        ticker, period=period, interval=interval, auto_adjust=False,
+        progress=False, threads=False, timeout=25,
     )
-    mss = "YES" if mss_active else "NO"
-    zone = ("BULL OB/BB" if bull_sweep else "BEAR OB/BB") if mss_active else "—"
-    signal = ("BULL ORDER" if bull_sweep else "BEAR ORDER") if mss_active else "WAIT"
+    return _clean_ohlc(raw)
+
+
+def _completed(frame: pd.DataFrame) -> pd.DataFrame:
+    data = _clean_ohlc(frame)
+    # Drop newest bar conservatively because Yahoo may return an unfinished bar.
+    return data.iloc[:-1] if len(data) > 1 else pd.DataFrame()
+
+
+def _sweep_mss(frame: pd.DataFrame) -> dict[str, Any]:
+    data = _completed(frame)
+    if len(data) < 2:
+        return {"direction": 0, "sweep": "NO DATA", "mss": "—", "close": None, "time": None}
+    prev, cur = data.iloc[-2], data.iloc[-1]
+    bull = cur.Low < prev.Low and cur.Close > prev.Low
+    bear = cur.High > prev.High and cur.Close < prev.High
+    # Confirm displacement through the opposite side of the reference candle.
+    bull_mss = bull and cur.Close > prev.High
+    bear_mss = bear and cur.Close < prev.Low
+    direction = 1 if bull_mss else -1 if bear_mss else 0
+    sweep = "BULL SWEEP" if bull else "BEAR SWEEP" if bear else "—"
     return {
-        "Timeframe": label,
-        "Liquidity Sweep": sweep,
-        "MSS/MSB": mss,
-        "OB/BB": zone,
-        "Signal": signal,
-        "Last Close": round(float(current["Close"]), 2),
-        "Updated": data.index[-1].strftime("%d-%b-%Y %H:%M"),
+        "direction": direction, "sweep": sweep,
+        "mss": "BULL MSS" if bull_mss else "BEAR MSS" if bear_mss else "NO",
+        "close": round(float(cur.Close), 2),
+        "time": data.index[-1].strftime("%d-%b-%Y %H:%M"),
     }
 
 
 def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Return Pine-style MTF status rows and per-timeframe data errors."""
+    """Analyze all five HTF->LTF pairs for one Yahoo-compatible symbol."""
     ticker = yahoo_ticker(symbol)
     rows: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
-    daily_cache: pd.DataFrame | None = None
-    hourly_cache: pd.DataFrame | None = None
+    cache: dict[tuple[str, str], pd.DataFrame] = {}
 
-    for spec in TIMEFRAMES:
-        label = str(spec["label"])
+    def get_data(period: str, interval: str, resample: str | None = None) -> pd.DataFrame:
+        key = (period, interval)
+        if key not in cache:
+            cache[key] = _download(ticker, period, interval)
+        frame = cache[key]
+        return _resample(frame, resample) if resample else frame
+
+    for spec in PAIR_SPECS:
+        htf, ltf = spec["HTF"], spec["LTF"]
+        label = f"{htf} → {ltf}"
         try:
-            if label == "4H":
-                if hourly_cache is None:
-                    hourly_cache = _clean_ohlc(yf.download(
-                        ticker, period="60d", interval="60m",
-                        auto_adjust=False, progress=False, threads=False,
-                    ))
-                raw = hourly_cache
-                if not raw.empty:
-                    raw = raw.resample("4h", label="right", closed="right").agg({
-                        "Open": "first", "High": "max", "Low": "min", "Close": "last"
-                    }).dropna()
-            elif label == "1H":
-                raw = _clean_ohlc(yf.download(
-                    ticker, period="60d", interval="60m",
-                    auto_adjust=False, progress=False, threads=False,
-                ))
-                hourly_cache = raw
-            elif label == "Daily":
-                raw = _clean_ohlc(yf.download(
-                    ticker, period="2y", interval="1d",
-                    auto_adjust=False, progress=False, threads=False,
-                ))
-                daily_cache = raw
-            elif label == "Weekly":
-                if daily_cache is None:
-                    daily_cache = _clean_ohlc(yf.download(
-                        ticker, period="5y", interval="1d",
-                        auto_adjust=False, progress=False, threads=False,
-                    ))
-                raw = daily_cache.resample("W-FRI", label="right", closed="right").agg({
-                    "Open": "first", "High": "max", "Low": "min", "Close": "last"
-                }).dropna()
+            higher = get_data(spec["htf_period"], spec["htf_interval"], spec.get("htf_resample"))
+            lower = get_data(spec["ltf_period"], spec["ltf_interval"], spec.get("ltf_resample"))
+            hs, ls = _sweep_mss(higher), _sweep_mss(lower)
+            if hs["direction"] == 0:
+                setup = "WAIT HTF"
+                signal = "WAIT"
+            elif ls["direction"] == 0:
+                setup = "WAIT LTF CONFIRMATION"
+                signal = "WAIT"
+            elif hs["direction"] != ls["direction"]:
+                setup = "LTF OPPOSITE — NO TRADE"
+                signal = "WAIT"
+            elif hs["direction"] == 1:
+                setup, signal = "BULLISH HTF+LTF CONFIRMED", "BULL WATCH"
             else:
-                if daily_cache is None:
-                    daily_cache = _clean_ohlc(yf.download(
-                        ticker, period="10y", interval="1d",
-                        auto_adjust=False, progress=False, threads=False,
-                    ))
-                raw = daily_cache.resample("ME", label="right", closed="right").agg({
-                    "Open": "first", "High": "max", "Low": "min", "Close": "last"
-                }).dropna()
+                setup, signal = "BEARISH HTF+LTF CONFIRMED", "BEAR WATCH"
 
-            if raw.empty:
-                errors[label] = "Yahoo Finance से डेटा नहीं मिला"
-                rows.append(_status(pd.DataFrame(), label))
-            else:
-                rows.append(_status(raw, label))
+            rows.append({
+                "HTF → LTF": label,
+                "HTF Sweep": hs["sweep"], "HTF MSS": hs["mss"],
+                "LTF Sweep": ls["sweep"], "LTF MSS": ls["mss"],
+                "Alignment / Setup": setup, "Signal": signal,
+                "HTF Close": hs["close"], "LTF Close": ls["close"],
+                "HTF Candle": hs["time"], "LTF Candle": ls["time"],
+            })
+            if hs["close"] is None:
+                errors[label] = f"{htf} data unavailable/insufficient"
+            if ls["close"] is None:
+                errors[label] = (errors.get(label, "") + f"; {ltf} data unavailable/insufficient").strip("; ")
         except Exception as exc:
-            errors[label] = str(exc)[:180]
-            rows.append(_status(pd.DataFrame(), label))
-
+            errors[label] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            rows.append({
+                "HTF → LTF": label, "HTF Sweep": "ERROR", "HTF MSS": "—",
+                "LTF Sweep": "ERROR", "LTF MSS": "—",
+                "Alignment / Setup": "DATA ERROR", "Signal": "WAIT",
+                "HTF Close": None, "LTF Close": None,
+                "HTF Candle": None, "LTF Candle": None,
+            })
     return pd.DataFrame(rows), errors
