@@ -1104,8 +1104,8 @@ with mtf_tab:
             if not results_mtf.empty:
                 signal_filter = st.multiselect(
                     "Signal filter",
-                    ["BULL WATCH", "BEAR WATCH", "WAIT"],
-                    default=["BULL WATCH", "BEAR WATCH", "WAIT"],
+                    ["BULL ORDER", "BEAR ORDER", "WAIT"],
+                    default=["BULL ORDER", "BEAR ORDER", "WAIT"],
                     key="crt_mtf_signal_filter",
                 )
                 visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
@@ -1131,7 +1131,7 @@ with mtf_tab:
                     )
             st.caption(
                 "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→1m. "
-                "BULL/BEAR WATCH तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS मिले। "
+                "BULL/BEAR ORDER तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS के बाद साझा FVG/IFVG/OB/BOB retest और confirmation मिले। "
                 "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
                 "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
                 "नवीनतम संभावित incomplete candle analysis से हटाई जाती है।"
