@@ -1108,9 +1108,55 @@ with mtf_tab:
                     default=["BULL ORDER", "BEAR ORDER", "WAIT"],
                     key="crt_mtf_signal_filter",
                 )
-                visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
-                st.dataframe(visible_mtf, use_container_width=True, hide_index=True)
-                csv = visible_mtf.to_csv(index=False).encode("utf-8-sig")
+                visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)].copy()
+
+                # Compact view: combine each timeframe's sweep + MSS and show
+                # one decision column instead of repeating WAIT across 3 columns.
+                def _structure_label(row, prefix):
+                    sweep = str(row.get(f"{prefix} Liquidity", "—"))
+                    mss = str(row.get(f"{prefix} MSS", "—"))
+                    if mss in ("BULL MSS", "BEAR MSS"):
+                        return f"{sweep} · {mss}"
+                    if sweep in ("BULL SWEEP", "BEAR SWEEP"):
+                        return f"{sweep} · MSS pending"
+                    return "—" if sweep in ("—", "NO DATA", "ERROR") else f"{sweep} · MSS pending"
+
+                def _decision_label(row):
+                    alignment = str(row.get("Alignment", ""))
+                    entry_status = str(row.get("Entry Status", ""))
+                    if alignment == "DATA ERROR":
+                        return "DATA ERROR"
+                    if alignment == "WAIT HTF":
+                        return "WAIT — HTF setup"
+                    if alignment == "WAIT LTF MSS":
+                        return "WAIT — LTF MSS"
+                    if alignment == "LTF OPPOSITE — NO TRADE":
+                        return "NO TRADE — opposite direction"
+                    if entry_status == "WAIT ZONE":
+                        return "WAIT — zone formation"
+                    if entry_status == "WAIT RETEST" or alignment == "WAIT LTF RETEST":
+                        return "WAIT — zone retest"
+                    return "HTF + LTF confirmed"
+
+                compact_mtf = pd.DataFrame({
+                    "Symbol": visible_mtf["Symbol"],
+                    "Name": visible_mtf["Name"],
+                    "Timeframe Pair": visible_mtf["HTF → LTF"],
+                    "HTF Setup": visible_mtf.apply(lambda r: _structure_label(r, "HTF"), axis=1),
+                    "LTF Setup": visible_mtf.apply(lambda r: _structure_label(r, "LTF"), axis=1),
+                    "Entry Zone": visible_mtf["Entry Zone"],
+                    "Retest Price": visible_mtf["Retest Price"],
+                    "Entry Price": visible_mtf["Entry Price"],
+                    "Entry Time": visible_mtf["Entry Time"],
+                    "Decision": visible_mtf.apply(_decision_label, axis=1),
+                    "Signal": visible_mtf["Signal"],
+                    "HTF Close": visible_mtf["HTF Close"],
+                    "HTF Candle": visible_mtf["HTF Candle"],
+                    "LTF Close": visible_mtf["LTF Close"],
+                    "LTF Candle": visible_mtf["LTF Candle"],
+                })
+                st.dataframe(compact_mtf, use_container_width=True, hide_index=True)
+                csv = compact_mtf.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
                     "⬇️ Download MTF results (CSV)", csv,
                     file_name="crt_mtf_scan_results.csv", mime="text/csv"
@@ -1130,7 +1176,7 @@ with mtf_tab:
                         use_container_width=True, hide_index=True
                     )
             st.caption(
-                "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→1m. "
+                "HTF→LTF pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→5m. "
                 "BULL/BEAR ORDER तभी दिखेगा जब दोनों timeframes पर same-direction sweep + MSS के बाद साझा FVG/IFVG/OB/BOB retest और confirmation मिले। "
                 "यह confirmation watchlist है; FVG/OB retest, exact entry/SL/target और broker order "
                 "execution इसमें शामिल नहीं हैं। Yahoo Finance intraday history सीमित/delayed हो सकती है; "
