@@ -1024,45 +1024,116 @@ with ai_tab:
 with mtf_tab:
     st.header("🧭 CRT Multiple Time Frame Analysis")
     st.caption(
-        "Supplied Pine Script के MTF dashboard का Python implementation. "
-        "यह केवल analysis panel है; मौजूदा CRT Scanner और Backtest के नियम नहीं बदलता।"
+        "Index और Stocks की सूची से एक या कई symbols चुनकर CRT MTF scan करें. "
+        "मौजूदा CRT Scanner और Backtest के नियम इससे नहीं बदलते।"
     )
-    st.info(
-        "Pine Script mapping: 1H, 4H, Daily, Weekly और Monthly. "
-        "हर timeframe पर completed candle के आधार पर Liquidity Sweep, MSS/MSB, OB/BB और Signal दिखेगा."
+    mtf_universe_mode = st.selectbox(
+        "किसका MTF scan करना है?",
+        ["All Indian indices", "All NSE EQ stocks", "All India stocks + indices"],
+        index=0,
+        key="crt_mtf_universe_mode",
+        help="All India stocks + indices में NSE, BSE, SME stocks और mapped indices शामिल हैं।"
     )
-    mtf_symbol = st.text_input(
-        "Symbol / Yahoo ticker",
-        value="^NSEI",
-        help="उदाहरण: ^NSEI (NIFTY 50), ^NSEBANK (BANK NIFTY), RELIANCE.NS",
-        key="crt_mtf_symbol",
-    )
-    run_mtf = st.button("🔍 Run MTF Analysis", type="primary", key="run_crt_mtf")
-    if run_mtf:
-        if not mtf_symbol.strip():
-            st.warning("कृपया Symbol दर्ज करें।")
-        else:
-            with st.spinner(f"{mtf_symbol.strip()} के सभी timeframes का data जाँचा जा रहा है..."):
-                mtf_df, mtf_errors = analyze_mtf_symbol(mtf_symbol.strip())
-            st.session_state["crt_mtf_result"] = mtf_df
-            st.session_state["crt_mtf_errors"] = mtf_errors
-            st.session_state["crt_mtf_symbol_last"] = mtf_symbol.strip()
 
-    if "crt_mtf_result" in st.session_state:
-        st.subheader(f"Analysis: {st.session_state.get('crt_mtf_symbol_last', '')}")
-        mtf_view = st.session_state["crt_mtf_result"].copy()
-        st.dataframe(mtf_view, use_container_width=True, hide_index=True)
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _load_mtf_universe(mode: str) -> pd.DataFrame:
+        return make_universe(mode)
+
+    try:
+        with st.spinner("Index / Stock list लोड हो रही है..."):
+            mtf_universe = _load_mtf_universe(mtf_universe_mode)
+        mtf_universe = mtf_universe[
+            mtf_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
+        ].drop_duplicates(subset=["Symbol", "Name", "Exchange"])
+        mtf_labels = {
+            f"{row.Name} | {row.Exchange} | {row.Symbol}": row.Symbol
+            for row in mtf_universe.itertuples(index=False)
+        }
+        selected_labels = st.multiselect(
+            "Index / Stock चुनें (search करके भी चुन सकते हैं)",
+            options=list(mtf_labels.keys()),
+            key="crt_mtf_selected_symbols",
+            placeholder="जैसे NIFTY 50, RELIANCE, HDFC BANK..."
+        )
+        c1, c2 = st.columns(2)
+        c1.metric("इस सूची में उपलब्ध", f"{len(mtf_universe):,}")
+        c2.metric("आपने चुने", f"{len(selected_labels):,}")
+        st.caption(
+            "पहले एक या अधिक नाम चुनें, फिर Scan दबाएँ। बहुत बड़े चयन में Yahoo Finance की "
+            "rate limits और data availability के कारण scan में समय लग सकता है।"
+        )
+        run_mtf = st.button(
+            f"🔍 Scan Selected ({len(selected_labels)})",
+            type="primary",
+            key="run_crt_mtf",
+            disabled=not selected_labels,
+        )
+        if run_mtf:
+            selected_symbols = [mtf_labels[label] for label in selected_labels]
+            all_rows = []
+            all_errors = {}
+            progress = st.progress(0.0, text="Starting MTF scan...")
+            status = st.empty()
+            for i, label in enumerate(selected_labels, start=1):
+                symbol = mtf_labels[label]
+                status.caption(f"Scanning {i:,}/{len(selected_symbols):,}: {label}")
+                try:
+                    result_df, symbol_errors = analyze_mtf_symbol(symbol)
+                    if not result_df.empty:
+                        result_df.insert(0, "Symbol", symbol)
+                        result_df.insert(1, "Name", label.split(" | ")[0])
+                        all_rows.append(result_df)
+                    if symbol_errors:
+                        all_errors[symbol] = "; ".join(
+                            f"{tf}: {msg}" for tf, msg in symbol_errors.items()
+                        )
+                except Exception as exc:
+                    all_errors[symbol] = str(exc)[:250]
+                progress.progress(i / len(selected_symbols), text=f"MTF scan: {i:,}/{len(selected_symbols):,}")
+            st.session_state["crt_mtf_results"] = (
+                pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
+            )
+            st.session_state["crt_mtf_errors"] = all_errors
+            st.session_state["crt_mtf_selected_count"] = len(selected_symbols)
+            st.session_state["crt_mtf_scan_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
+            status.success("Selected symbols का scan पूरा हुआ।")
+
+    if "crt_mtf_results" in st.session_state:
+        results_mtf = st.session_state["crt_mtf_results"].copy()
+        st.subheader("MTF Scan Results")
+        if not results_mtf.empty:
+            signal_filter = st.multiselect(
+                "Signal filter",
+                ["BULL ORDER", "BEAR ORDER", "WAIT"],
+                default=["BULL ORDER", "BEAR ORDER", "WAIT"],
+                key="crt_mtf_signal_filter",
+            )
+            visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)]
+            st.dataframe(visible_mtf, use_container_width=True, hide_index=True)
+            csv = visible_mtf.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "⬇️ Download MTF results (CSV)", csv,
+                file_name="crt_mtf_scan_results.csv", mime="text/csv"
+            )
+        else:
+            st.warning("चुने गए symbols के लिए Yahoo Finance से usable MTF data नहीं मिला।")
         errors = st.session_state.get("crt_mtf_errors", {})
+        st.caption(
+            f"Scanned symbols: {st.session_state.get('crt_mtf_selected_count', 0):,} · "
+            f"Data errors: {len(errors):,} · "
+            f"Time: {st.session_state.get('crt_mtf_scan_time', '')}"
+        )
         if errors:
             with st.expander("Data availability / errors"):
-                for timeframe, message in errors.items():
-                    st.write(f"**{timeframe}:** {message}")
+                st.dataframe(
+                    pd.DataFrame([{"Symbol": k, "Error": v} for k, v in errors.items()]),
+                    use_container_width=True, hide_index=True
+                )
         st.caption(
-            "ध्यान दें: Yahoo Finance में 1H का सीमित इतिहास उपलब्ध होता है; 4H को 1H candles से "
-            "resample किया जाता है और Weekly/Monthly को Daily candles से बनाया जाता है. "
-            "नवीनतम candle को संभावित incomplete होने के कारण analysis से हटाया जाता है. "
-            "यह Pine Script के f_tfStatus() dashboard logic का port है, complete Pine strategy "
-            "execution या broker order नहीं है."
+            "Yahoo Finance data unofficial/delayed हो सकता है। 1H history सीमित है; 4H, 1H से "
+            "और Weekly/Monthly, Daily candles से resample होते हैं। नवीनतम संभावित incomplete "
+            "candle हटाई जाती है। यह अभी timeframe-wise Pine f_tfStatus dashboard है, complete "
+            "HTF→LTF entry confirmation या broker order execution नहीं।"
         )
-    else:
-        st.write("Symbol दर्ज करके Run MTF Analysis दबाएँ।")
+    except Exception as exc:
+        st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
