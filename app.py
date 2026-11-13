@@ -1110,54 +1110,27 @@ with mtf_tab:
                 )
                 visible_mtf = results_mtf[results_mtf["Signal"].isin(signal_filter)].copy()
 
-                # Compact view: combine each timeframe's sweep + MSS and show
-                # one decision column instead of repeating WAIT across 3 columns.
-                def _structure_label(row, prefix):
-                    sweep = str(row.get(f"{prefix} Liquidity", "—"))
-                    mss = str(row.get(f"{prefix} MSS", "—"))
-                    if mss in ("BULL MSS", "BEAR MSS"):
-                        return f"{sweep} · {mss}"
-                    if sweep in ("BULL SWEEP", "BEAR SWEEP"):
-                        return f"{sweep} · MSS pending"
-                    return "—" if sweep in ("—", "NO DATA", "ERROR") else f"{sweep} · MSS pending"
-
-                def _decision_label(row):
-                    alignment = str(row.get("Alignment", ""))
-                    entry_status = str(row.get("Entry Status", ""))
-                    if alignment == "DATA ERROR":
-                        return "DATA ERROR"
-                    if alignment == "WAIT HTF":
-                        return "WAIT — HTF setup"
-                    if alignment == "WAIT LTF MSS":
-                        return "WAIT — LTF MSS"
-                    if alignment == "LTF OPPOSITE — NO TRADE":
-                        return "NO TRADE — opposite direction"
-                    if entry_status == "WAIT ZONE":
-                        return "WAIT — zone formation"
-                    if entry_status == "WAIT RETEST" or alignment == "WAIT LTF RETEST":
-                        return "WAIT — zone retest"
-                    return "HTF + LTF confirmed"
+                # Compact MTF view: one column per requested concept.
+                def _pair_status(row, htf_col, ltf_col):
+                    htf_value = str(row.get(htf_col, "—"))
+                    ltf_value = str(row.get(ltf_col, "—"))
+                    return f"HTF: {htf_value} | LTF: {ltf_value}"
 
                 compact_mtf = pd.DataFrame({
                     "Symbol": visible_mtf["Symbol"],
                     "Name": visible_mtf["Name"],
-                    "Timeframe Pair": visible_mtf["HTF → LTF"],
-                    "HTF Setup": visible_mtf.apply(lambda r: _structure_label(r, "HTF"), axis=1),
-                    "LTF Setup": visible_mtf.apply(lambda r: _structure_label(r, "LTF"), axis=1),
-                    "Entry Zone": visible_mtf["Entry Zone"],
-                    "Retest Price": visible_mtf["Retest Price"],
-                    "Entry Price": visible_mtf["Entry Price"],
-                    "Entry Time": visible_mtf["Entry Time"],
-                    "Decision": visible_mtf.apply(_decision_label, axis=1),
-                    "Signal": visible_mtf["Signal"],
-                    "HTF Close / Candle": visible_mtf.apply(
-                        lambda r: f"{r['HTF Close']} · {r['HTF Candle']}"
-                        if pd.notna(r["HTF Close"]) and pd.notna(r["HTF Candle"]) else "—", axis=1
+                    "CRT": visible_mtf["HTF → LTF"],
+                    "Entry": visible_mtf["Entry Zone"].replace({"—": "FVG / OB / IFVG / Advance OB"}),
+                    "Liquidity": visible_mtf.apply(
+                        lambda r: _pair_status(r, "HTF Liquidity", "LTF Liquidity"), axis=1
                     ),
-                    "LTF Close / Candle": visible_mtf.apply(
-                        lambda r: f"{r['LTF Close']} · {r['LTF Candle']}"
-                        if pd.notna(r["LTF Close"]) and pd.notna(r["LTF Candle"]) else "—", axis=1
+                    "CHoCH": visible_mtf.apply(
+                        lambda r: _pair_status(r, "HTF MSS", "LTF MSS"), axis=1
                     ),
+                    "Retest": visible_mtf["Entry Status"].replace({
+                        "ORDER": "CONFIRMED", "WAIT RETEST": "WAITING",
+                        "WAIT ZONE": "ZONE PENDING"
+                    }),
                 })
                 st.dataframe(compact_mtf, use_container_width=True, hide_index=True)
                 csv = compact_mtf.to_csv(index=False).encode("utf-8-sig")
