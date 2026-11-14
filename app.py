@@ -1186,6 +1186,13 @@ with screener_tab:
         "हर चुने हुए Symbol को एक ही Scan में आपके तय किए हुए सभी पाँच HTF → LTF pairs पर जाँचा जाएगा। "
         "अधिकतम 10 symbols; scanner read-only है।"
     )
+    st.info(
+        "🤖 Automatic background scan भी GitHub Actions से चालू है: भारतीय बाजार के समय में हर 5 मिनट "
+        "एक rotating batch (डिफॉल्ट 20 symbols) के सभी 5 timeframe pairs स्कैन होंगे। "
+        "पूरी NSE/BSE/SME + mapped-index सूची batches में घूमेगी; पूरी सूची हर 5 मिनट में दोबारा स्कैन नहीं होती। "
+        "नए confirmed BUY/SELL के Telegram alerts के लिए GitHub repository में TELEGRAM_BOT_TOKEN और "
+        "TELEGRAM_CHAT_ID Actions secrets जोड़ना जरूरी है। हर run की CSV GitHub Actions artifact में मिलेगी।"
+    )
     screener_universe_choice = st.radio(
         "Search किस सूची में करना है?",
         ["All Index", "All Stocks", "All India Stocks + Indices"],
