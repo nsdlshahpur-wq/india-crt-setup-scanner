@@ -25,7 +25,7 @@ PAIR_SPECS = [
      "ltf_period": "60d", "ltf_interval": "5m"},
 ]
 
-CONFIG = ScanConfig()
+CONFIG = ScanConfig(pivot_left=5, pivot_right=5)
 
 
 def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
@@ -233,8 +233,7 @@ def _analyze_pair_with_monthly_crt_rules(
     # The HTF M2 candle is the sweep candle; its extreme defines the stop.
     sweep_stop = m2_low if direction == 1 else m2_high
     opposite_target = m1_high if direction == 1 else m1_low
-    entry_data = entry_data.reset_index(drop=False).rename(columns={"index": "_time"})
-    entry_data = entry_data.set_index("_time")
+    entry_data = entry_data.copy()
     last_index = len(entry_data) - 1
 
     # The LTF structure is evaluated independently after the HTF M2 close.
