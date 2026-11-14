@@ -330,7 +330,7 @@ def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
                 "LTF Close": crt["ltf_close"], "HTF Candle": crt["sweep_time"],
                 "LTF Candle": crt["choch_time"],
             })
-            if hs["close"] is None or ls["close"] is None:
+            if crt["htf_close"] is None or crt["ltf_close"] is None:
                 errors[pair] = "Insufficient timeframe history"
         except Exception as exc:
             errors[pair] = f"{type(exc).__name__}: {str(exc)[:180]}"
