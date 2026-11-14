@@ -39,11 +39,16 @@ def test_scan_symbols_collects_pair_errors(monkeypatch):
     assert errors == {"ABC.NS | Weekly → 4H": "No lower timeframe data"}
 
 
-def test_scan_symbols_limits_to_ten_unique_symbols(monkeypatch):
+def test_scan_symbols_processes_entire_universe_and_reports_progress(monkeypatch):
     seen = []
+    progress = []
     def fake(symbol):
         seen.append(symbol)
         return pd.DataFrame(), {}
     monkeypatch.setattr(multi, "analyze_mtf_symbol", fake)
-    multi.scan_symbols([f"S{i}" for i in range(12)])
-    assert len(seen) == 10
+    multi.scan_symbols(
+        [f"S{i}" for i in range(12)],
+        progress_callback=lambda done, total, symbol: progress.append((done, total, symbol)),
+    )
+    assert len(seen) == 12
+    assert progress[-1] == (12, 12, "S11")
