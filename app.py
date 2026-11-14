@@ -601,7 +601,11 @@ with scanner_tab:
         ))
         if asks_quantum_analysis:
             try:
-                quantum_result = analyze_quantum_market(\n                    st.session_state.get("scan_price_map", {}),\n                    daily_df if isinstance(daily_df, pd.DataFrame) else None,\n                    st.session_state.get("crt_multi_screener_results"),\n                )
+                quantum_result = analyze_quantum_market(
+                    st.session_state.get("scan_price_map", {}),
+                    daily_df if isinstance(daily_df, pd.DataFrame) else None,
+                    st.session_state.get("crt_multi_screener_results"),
+                )
                 ai_context.append("EXPERIMENTAL QUANTUM-KERNEL MARKET ANALYSIS (research only; not calibrated probabilities or trade signals):")
                 ai_context.append(str(quantum_result))
             except Exception as quantum_exc:
