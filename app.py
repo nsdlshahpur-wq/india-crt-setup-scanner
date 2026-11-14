@@ -764,6 +764,37 @@ with ai_tab:
         if isinstance(bt_trades, pd.DataFrame) and not bt_trades.empty:
             context_parts.append("Recent backtest trades: " + bt_trades.tail(20).to_json(orient="records", date_format="iso"))
 
+    # Extend AI knowledge with all available Daily, MTF and multi-symbol scanner records.
+    def _ai_table_context(key: str, label: str, limit: int = 1200):
+        frame = st.session_state.get(key)
+        if not isinstance(frame, pd.DataFrame):
+            return
+        if frame.empty:
+            context_parts.append(f"{label}: scan exists but returned 0 setup rows.")
+            return
+        context_parts.append(
+            f"{label}: total_rows={len(frame)}; columns={list(frame.columns)}; "
+            f"records_sample={frame.head(limit).to_json(orient='records', date_format='iso')}"
+        )
+        if len(frame) > limit:
+            context_parts.append(f"{label}: only first {limit} of {len(frame)} rows are included; disclose this limitation.")
+
+    _ai_table_context("crt_mtf_results", "Latest five-pair MTF scanner records", 1500)
+    _ai_table_context("multi_symbol_results", "Latest Multi-Symbol screener records", 1500)
+    if "crt_mtf_scan_time" in st.session_state:
+        context_parts.append(
+            f"MTF scan time={st.session_state.get('crt_mtf_scan_time')}; "
+            f"symbols selected={st.session_state.get('crt_mtf_selected_count', 'unknown')}; "
+            f"errors={len(st.session_state.get('crt_mtf_errors', {}))}."
+        )
+    if "crt_mtf_errors" in st.session_state:
+        mtf_errors = st.session_state.get("crt_mtf_errors", {})
+        context_parts.append("MTF data errors: " + str(dict(list(mtf_errors.items())[:100])))
+    if "scan_errors" in st.session_state:
+        daily_errors = st.session_state.get("scan_errors", {})
+        context_parts.append(f"Daily scanner data errors count={len(daily_errors)}; sample={str(dict(list(daily_errors.items())[:50]))}")
+    context_parts.append("Configured MTF pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m, 1H→5m. MTF records distinguish CRT M1/M2 from entry-timeframe CHoCH and zone retest. Never describe WAIT as a confirmed trade.")
+
     # Chart is independent of a full-market scan: users can load any NSE symbol
     # or common Indian index here. Existing scan data is reused when available.
     ai_price_map = st.session_state.get("scan_price_map", {})
