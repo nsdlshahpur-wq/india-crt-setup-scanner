@@ -17,6 +17,7 @@ from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from mtf_analysis import analyze_mtf_symbol
 from multi_symbol_scanner import scan_symbols
+from market_intelligence import build_market_snapshot, fetch_google_news_sentiment
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -560,7 +561,7 @@ with scanner_tab:
         st.session_state["crt_ai_messages"].append({"role": "user", "content": ai_question})
         ai_context = [
             "You are the single central AI command centre for India CRT Setup Scanner. Reply in clear Hindi. Understand natural-language commands and questions. Never invent scan records, prices, timeframes, strategy stages, or counts. Distinguish confirmed ORDER from WAIT, rejected, missed, unavailable data. Do not claim continuous/live monitoring; state scan timestamp and data source. Never execute trades.",
-            "Configured pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m, 1H→5m. CRT M1/M2 are marked on their own CRT timeframe. Entry CHoCH, FVG, IFVG, OB, BOB retest and confirmation are evaluated on the paired entry timeframe.",
+            "Configured pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m, 1H→5m. CRT M1/M2 are marked on their own CRT timeframe. Entry CHoCH, FVG, IFVG, OB, BOB retest and confirmation are evaluated on the paired entry timeframe. Use the local breadth/regime snapshot as a rule-based quantitative estimate, not a predictive certainty. News sentiment is a simple transparent keyword baseline over public RSS headlines, not a finance-trained transformer. Always report coverage, sample count and data timestamp; never call unavailable data neutral.",
             "Daily scanner snapshot:",
         ]
         daily_df = st.session_state.get("scan_results")
@@ -582,6 +583,30 @@ with scanner_tab:
                 ai_context.append(f"{label}: no scan record available in this session.")
         if "crt_ensemble_report" in st.session_state:
             ai_context.append("Historical model validation report: " + str(st.session_state["crt_ensemble_report"]))
+        # Quantitative market context is computed locally from the same downloaded OHLC
+        # and scanner records; no extra paid data API is needed.
+        try:
+            market_snapshot = build_market_snapshot(
+                st.session_state.get("scan_price_map", {}),
+                daily_df if isinstance(daily_df, pd.DataFrame) else None,
+                st.session_state.get("crt_multi_screener_results"),
+            )
+            ai_context.append("LOCAL QUANTITATIVE MARKET BREADTH / REGIME SNAPSHOT (rule-based, not a guaranteed prediction):")
+            ai_context.append(str(market_snapshot))
+        except Exception as market_exc:
+            ai_context.append(f"Local market snapshot unavailable: {type(market_exc).__name__}: {str(market_exc)[:160]}")
+        asks_news_sentiment = any(word in ai_question.lower() for word in (
+            "sentiment", "news", "खबर", "न्यूज़", "news", "market mood", "market outlook",
+            "बाजार का मूड", "मार्केट का मूड", "बाजार का हाल", "मार्केट का हाल",
+        ))
+        if asks_news_sentiment:
+            try:
+                news_snapshot = fetch_google_news_sentiment()
+                ai_context.append("PUBLIC INDIA MARKET NEWS HEADLINE SENTIMENT (keyword-lexicon estimate; headline-only; not FinBERT):")
+                ai_context.append(str(news_snapshot))
+            except Exception as news_exc:
+                ai_context.append(f"Public news RSS unavailable: {type(news_exc).__name__}: {str(news_exc)[:180]}")
+
         ai_history = st.session_state["crt_ai_messages"][-12:]
         ai_payload = {
             "systemInstruction": {"parts": [{"text": "\\n\\n".join(ai_context)}]},
