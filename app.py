@@ -1255,18 +1255,21 @@ with screener_tab:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
             preferred = [
-                "Symbol", "HTF → LTF", "HTF Liquidity", "HTF MSS",
-                "LTF Liquidity", "LTF MSS", "Entry Zone", "Retest Zone",
-                "Retest Price", "Entry Price", "Entry Time", "Alignment",
-                "Entry Status", "Signal", "HTF Close", "LTF Close",
-                "HTF Candle", "LTF Candle",
+                "Symbol", "HTF → LTF", "CRT M1 High", "CRT M1 Low",
+                "CRT M2 High", "CRT M2 Low", "CRT M2 Close", "CRT Sweep",
+                "Sweep Direction", "Entry-TF CHoCH", "Entry Zone", "Retest Zone",
+                "Retest Price", "Entry Price", "Stop Loss", "Target", "RR",
+                "Entry Time", "Alignment", "Entry Status", "Signal",
+                "CRT M1 Candle", "CRT M2 Candle", "CHoCH Time",
+                "CRT Close", "Entry-TF Close",
             ]
             display = screener_df[[c for c in preferred if c in screener_df.columns]].copy()
 
-            # Keep the default view narrow; put diagnostic fields behind an expander.
+            # Main view shows CRT marking and entry plan; diagnostic timestamps stay expandable.
             compact_columns = [
-                "HTF → LTF", "HTF Liquidity", "LTF MSS",
-                "Entry Zone", "Entry Status", "Signal",
+                "HTF → LTF", "CRT M1 High", "CRT M1 Low", "CRT Sweep",
+                "Sweep Direction", "Entry-TF CHoCH", "Entry Zone",
+                "Retest Zone", "Entry Price", "Stop Loss", "Target", "Signal",
             ]
             detail_columns = [
                 c for c in display.columns
@@ -1332,7 +1335,7 @@ with screener_tab:
                 with st.expander(f"{company_name} · {len(symbol_rows)} timeframe pairs", expanded=True):
                     summary_columns = [c for c in compact_columns if c in symbol_rows.columns]
                     table_key = f"crt_pair_table_{group_number}"
-                    st.caption("जिस Timeframe Pair का chart देखना है, उसकी row पर क्लिक करें।")
+                    st.caption("CRT की M1/M2 marking CRT timeframe से है; Entry/CHoCH/Zone planning Entry timeframe से है। Row चुनकर संबंधित chart खोलें।")
                     st.dataframe(
                         symbol_rows[summary_columns].reset_index(drop=True),
                         use_container_width=True, hide_index=True,
