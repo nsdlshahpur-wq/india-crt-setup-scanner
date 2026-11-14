@@ -18,6 +18,7 @@ from universe import make_universe
 from mtf_analysis import analyze_mtf_symbol
 from multi_symbol_scanner import scan_symbols
 from market_intelligence import build_market_snapshot, fetch_google_news_sentiment
+from quantum_ai import analyze_quantum_market
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -595,6 +596,17 @@ with scanner_tab:
             ai_context.append(str(market_snapshot))
         except Exception as market_exc:
             ai_context.append(f"Local market snapshot unavailable: {type(market_exc).__name__}: {str(market_exc)[:160]}")
+        asks_quantum_analysis = any(word in ai_question.lower() for word in (
+            "quantum", "क्वांटम", "quantam", "quantum ai", "quantum analysis",
+        ))
+        if asks_quantum_analysis:
+            try:
+                quantum_result = analyze_quantum_market(st.session_state.get("scan_price_map", {}))
+                ai_context.append("EXPERIMENTAL QUANTUM-KERNEL MARKET ANALYSIS (research only; not calibrated probabilities or trade signals):")
+                ai_context.append(str(quantum_result))
+            except Exception as quantum_exc:
+                ai_context.append(f"Quantum simulator unavailable: {type(quantum_exc).__name__}: {str(quantum_exc)[:200]}")
+
         asks_news_sentiment = any(word in ai_question.lower() for word in (
             "sentiment", "news", "खबर", "न्यूज़", "news", "market mood", "market outlook",
             "बाजार का मूड", "मार्केट का मूड", "बाजार का हाल", "मार्केट का हाल",
