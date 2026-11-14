@@ -18,11 +18,17 @@ def scan_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
 
 
 def scan_symbols(symbols: list[str], **kwargs: Any) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Scan selected symbols across all five timeframe pairs."""
-    unique = list(dict.fromkeys(str(s).strip() for s in symbols if str(s).strip()))[:10]
+    """Scan every supplied symbol across all five timeframe pairs.
+
+    Optional progress_callback(done, total, symbol) reports per-symbol progress.
+    No arbitrary ten-symbol cap: All Index / All Stocks covers the full universe.
+    """
+    unique = list(dict.fromkeys(str(s).strip() for s in symbols if str(s).strip()))
     frames: list[pd.DataFrame] = []
     errors: dict[str, str] = {}
-    for symbol in unique:
+    total = len(unique)
+    progress_callback = kwargs.get("progress_callback")
+    for position, symbol in enumerate(unique, start=1):
         try:
             frame, symbol_errors = scan_symbol(symbol)
             if not frame.empty:
@@ -32,5 +38,7 @@ def scan_symbols(symbols: list[str], **kwargs: Any) -> tuple[pd.DataFrame, dict[
                 errors[f"{symbol} | {pair}"] = message
         except Exception as exc:
             errors[f"{symbol} | ALL"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+        if callable(progress_callback):
+            progress_callback(position, total, symbol)
     combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     return combined, errors
