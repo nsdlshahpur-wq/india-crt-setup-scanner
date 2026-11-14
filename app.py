@@ -973,12 +973,12 @@ with ai_tab:
             if isinstance(mtf_ai_df, pd.DataFrame) and not mtf_ai_df.empty:
                 mtf_view = mtf_ai_df.copy()
                 mtf_cols = [x for x in ["Symbol", "HTF → LTF", "CRT Sweep", "Sweep Direction", "Entry-TF CHoCH", "Entry Zone", "Entry Status", "Entry Price", "Stop Loss", "Target", "RR", "Signal", "Alignment"] if x in mtf_view.columns]
-                answer += "\\n\\n**Latest MTF scan** (f"{st.session_state.get('crt_mtf_scan_time', 'time not recorded')}"):\n\n"
+                answer += f"\n\n**Latest MTF scan** ({st.session_state.get('crt_mtf_scan_time', 'time not recorded')}):\n\n"
                 answer += mtf_view[mtf_cols].head(250).to_markdown(index=False)
             multi_ai_df = st.session_state.get("crt_multi_screener_results")
             if isinstance(multi_ai_df, pd.DataFrame) and not multi_ai_df.empty:
                 multi_cols = [x for x in ["Symbol", "HTF → LTF", "CRT Sweep", "Sweep Direction", "Entry-TF CHoCH", "Entry Zone", "Entry Status", "Entry Price", "Stop Loss", "Target", "RR", "Signal", "Alignment"] if x in multi_ai_df.columns]
-                answer += "\\n\\n**Latest all-symbol five-pair scan** (f"{st.session_state.get('crt_multi_screener_time', 'time not recorded')}"):\n\n"
+                answer += f"\n\n**Latest all-symbol five-pair scan** ({st.session_state.get('crt_multi_screener_time', 'time not recorded')}):\n\n"
                 answer += multi_ai_df[multi_cols].head(500).to_markdown(index=False)
         elif not gemini_key:
             answer = "Gemini API key सेट नहीं है। Streamlit Secrets में GEMINI_API_KEY जोड़ने के बाद फिर प्रश्न पूछें।"
