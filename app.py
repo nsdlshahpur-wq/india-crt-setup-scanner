@@ -1181,17 +1181,15 @@ with mtf_tab:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
 
 with screener_tab:
-    st.header("🔎 CRT Multi-Timeframe Multi-Symbol Screener")
+    st.header("🔎 Monthly CRT Multi-Symbol Scanner")
     st.caption(
-        "हर चुने हुए Symbol को एक ही Scan में आपके तय किए हुए सभी पाँच HTF → LTF pairs पर जाँचा जाएगा। "
-        "अधिकतम 10 symbols; scanner read-only है।"
+        "M1 Monthly range → M2 one-side liquidity sweep + full-range reclaim → "
+        "Daily CHoCH → FVG / IFVG / OB / BOB retest → confirming Daily close."
     )
     st.info(
-        "🤖 Automatic background scan भी GitHub Actions से चालू है: भारतीय बाजार के समय में हर 5 मिनट "
-        "एक rotating batch (डिफॉल्ट 20 symbols) के सभी 5 timeframe pairs स्कैन होंगे। "
-        "पूरी NSE/BSE/SME + mapped-index सूची batches में घूमेगी; पूरी सूची हर 5 मिनट में दोबारा स्कैन नहीं होती। "
-        "नए confirmed BUY/SELL के Telegram alerts के लिए GitHub repository में TELEGRAM_BOT_TOKEN और "
-        "TELEGRAM_CHAT_ID Actions secrets जोड़ना जरूरी है। हर run की CSV GitHub Actions artifact में मिलेगी।"
+        "SL sweep-candle extreme पर और Target M1 की opposite liquidity boundary पर रहेगा. "
+        "यह read-only scanner है; broker order place नहीं करता। Yahoo Finance का Daily data "
+        "delayed या unavailable हो सकता है।"
     )
     screener_universe_choice = st.radio(
         "Search किस सूची में करना है?",
@@ -1233,63 +1231,48 @@ with screener_tab:
         requested = []
 
     st.markdown(
-        "**एक साथ स्कैन होने वाले Timeframe Pairs:** "
-        "Monthly → Daily · Weekly → 4H · Daily → 1H · 4H → 5m · 1H → 5m"
+        "**Strategy sequence:** Monthly M1/M2 sweep-reclaim → Daily CHoCH → "
+        "FVG / IFVG / OB / BOB retest → confirming Daily close."
     )
-    run_screener = st.button("🔍 Scan All Symbols × All Timeframes", type="primary", key="run_crt_multi_screener")
+    run_screener = st.button(
+        "🔍 Scan Selected Symbols", type="primary", key="run_crt_multi_screener",
+        disabled=not requested,
+    )
     if run_screener:
-        requested = list(dict.fromkeys(requested))
-        if not requested:
-            st.warning("कम-से-कम एक symbol दर्ज करें।")
-        elif len(requested) > 10:
-            st.error(f"आपने {len(requested)} symbols दिए हैं। इस screener में अधिकतम 10 symbols अनुमत हैं।")
-        else:
-            progress = st.progress(0.0, text="Starting all-timeframe scan...")
-            status = st.empty()
-            all_results = []
-            all_errors = {}
-            for idx, symbol in enumerate(requested, start=1):
-                status.caption(f"Scanning {idx}/{len(requested)}: {symbol} — all 5 timeframe pairs")
-                try:
-                    symbol_df, symbol_errors = analyze_mtf_symbol(symbol)
-                    if not symbol_df.empty:
-                        symbol_df.insert(0, "Symbol", symbol)
-                        all_results.append(symbol_df)
-                    if symbol_errors:
-                        all_errors[symbol] = "; ".join(f"{tf}: {msg}" for tf, msg in symbol_errors.items())
-                except Exception as exc:
-                    all_errors[symbol] = f"{type(exc).__name__}: {str(exc)[:180]}"
-                progress.progress(idx / len(requested), text=f"Scanned {idx}/{len(requested)} symbols")
-            combined = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
-            st.session_state["crt_multi_screener_results"] = combined
-            st.session_state["crt_multi_screener_errors"] = all_errors
-            st.session_state["crt_multi_screener_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
-            status.success("सभी चुने हुए Symbols के पाँचों Timeframe Pairs का scan पूरा हुआ।")
+        progress = st.progress(0.0, text="Starting Monthly CRT / Daily scan...")
+        status = st.empty()
+        all_rows = []
+        for idx, symbol in enumerate(requested, start=1):
+            status.caption(f"Scanning {idx}/{len(requested)}: {symbol}")
+            try:
+                row = scan_symbols([symbol]).to_dict("records")
+                if row:
+                    all_rows.extend(row)
+            except Exception as exc:
+                all_rows.append({
+                    "Symbol": symbol, "Signal": "WAIT", "Setup": "DATA ERROR",
+                    "Status": f"{type(exc).__name__}: {str(exc)[:180]}",
+                })
+            progress.progress(idx / len(requested), text=f"Scanned {idx}/{len(requested)} symbols")
+        combined = pd.DataFrame(all_rows)
+        st.session_state["crt_multi_screener_results"] = combined
+        st.session_state["crt_multi_screener_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
+        status.success("Monthly CRT → Daily scan पूरा हुआ।")
+
     if "crt_multi_screener_results" in st.session_state:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
-            ltf_choch = screener_df["LTF MSS"].astype(str).str.replace("BULL MSS", "BULL CHoCH", regex=False).str.replace("BEAR MSS", "BEAR CHoCH", regex=False)
-            raw_signal = screener_df["Signal"].astype(str)
-            signal_display = raw_signal.replace({
-                "BULL ORDER": "BUY", "BEAR ORDER": "SELL"
-            })
-            retest_zone = screener_df.get("Retest Zone", pd.Series("—", index=screener_df.index)).fillna("—").astype(str)
-            display = pd.DataFrame({
-                "CRT": screener_df["HTF → LTF"].astype(str).str.split("→").str[0].str.strip(),
-                "Entry": screener_df["HTF → LTF"].astype(str).str.split("→").str[-1].str.strip(),
-                "Liquidity": screener_df["LTF Liquidity"].replace({"NO DATA": "—", "—": "—"}).astype(str),
-                "MSS": ltf_choch.replace({"—": "NO", "NO DATA": "NO"}),
-                "Retest Price": retest_zone,
-                "Signals": signal_display,
-            })
-            # Keep the dashboard to the six columns requested; make each symbol heading open its TradingView chart.
+            preferred = [
+                "Symbol", "HTF Trend", "Monthly Status", "Sweep", "MSS", "Zone",
+                "Signal", "Entry", "SL", "Target", "RR", "Entry Status",
+                "Target Status", "Status",
+            ]
+            display = screener_df[[c for c in preferred if c in screener_df.columns]].copy()
             def _tradingview_symbol(raw_symbol: str) -> str:
                 raw = str(raw_symbol).strip().upper()
                 known_indices = {
-                    "^NSEI": "NSE:NIFTY",
-                    "^NSEBANK": "NSE:BANKNIFTY",
-                    "^BSESN": "BSE:SENSEX",
-                    "^INDIAVIX": "NSE:INDIAVIX",
+                    "^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY",
+                    "^BSESN": "BSE:SENSEX", "^INDIAVIX": "NSE:INDIAVIX",
                 }
                 if raw in known_indices:
                     return known_indices[raw]
@@ -1297,40 +1280,27 @@ with screener_tab:
                     return "NSE:" + raw[:-3]
                 if raw.endswith(".BO"):
                     return "BSE:" + raw[:-3]
-                if raw.startswith("NSE:") or raw.startswith("BSE:"):
-                    return raw
-                return "NSE:" + raw
+                return raw if raw.startswith(("NSE:", "BSE:")) else "NSE:" + raw
 
-            for symbol, symbol_rows in display.groupby(screener_df["Symbol"].astype(str), sort=False):
-                tv_symbol = _tradingview_symbol(symbol)
-                tv_url = "https://www.tradingview.com/chart/?symbol=" + quote(tv_symbol, safe="")
+            for symbol, symbol_rows in display.groupby("Symbol", sort=False):
+                tv_url = "https://www.tradingview.com/chart/?symbol=" + quote(_tradingview_symbol(symbol), safe="")
                 st.markdown(f"[**{symbol}**]({tv_url})")
-                st.dataframe(symbol_rows.reset_index(drop=True), use_container_width=True, hide_index=True)
+                st.dataframe(symbol_rows.drop(columns=["Symbol"]).reset_index(drop=True),
+                             use_container_width=True, hide_index=True)
             st.download_button(
-                "⬇️ Download All-Timeframe Screener CSV",
-                pd.concat([
-                    pd.DataFrame({"Symbol": screener_df["Symbol"].astype(str)}),
-                    display
-                ], axis=1).to_csv(index=False).encode("utf-8-sig"),
-                file_name="crt_all_timeframe_multi_symbol_screener.csv",
-                mime="text/csv",
-                key="download_crt_multi_screener"
+                "⬇️ Download Monthly CRT Multi-Scanner CSV",
+                screener_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="monthly_crt_daily_multi_scanner.csv",
+                mime="text/csv", key="download_crt_multi_screener",
             )
             st.caption(
                 f"Symbols: {screener_df['Symbol'].nunique()} · "
-                f"Timeframe rows: {len(display)} · "
                 f"Time: {st.session_state.get('crt_multi_screener_time', '')}"
             )
         else:
-            st.info("चुने गए symbols के लिए usable timeframe data नहीं मिला।")
-        errors = st.session_state.get("crt_multi_screener_errors", {})
-        if errors:
-            with st.expander("Data availability / errors"):
-                st.dataframe(
-                    pd.DataFrame([{"Symbol": k, "Error": v} for k, v in errors.items()]),
-                    use_container_width=True, hide_index=True
-                )
+            st.info("चुने गए symbols के लिए usable Daily data नहीं मिला।")
     st.caption(
-        "Pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→5m. "
-        "मौजूदा MTF engine के sweep/MSS और zone logic के अनुसार परिणाम आएँगे; यह Pine Script के हर advanced rule का 1:1 port नहीं है।"
+        "Entry confirmation retest के बाद directional completed Daily close पर होती है. "
+        "SL sweep candle के low/high और Target M1 Monthly range की opposite boundary है. "
+        "यह scanner signal की गारंटी नहीं देता और broker execution नहीं करता।"
     )
