@@ -42,3 +42,74 @@ def test_no_sweep_is_reported_without_fabricating_direction():
     assert result["direction"] == 0
     assert result["sweep"] == "—"
     assert result["mss"] == "NO"
+
+
+
+def _ohlc(rows, dates):
+    return pd.DataFrame(rows, columns=["Open", "High", "Low", "Close"], index=pd.to_datetime(dates))
+
+
+def test_crt_m1_m2_are_marked_on_crt_timeframe_and_bull_sweep_reclaim():
+    from mtf_analysis import _analyze_pair_with_monthly_crt_rules
+
+    higher = _ohlc(
+        [
+            [100, 108, 96, 103],
+            [101, 110, 95, 104],  # M1 CRT range
+            [102, 106, 90, 100],  # M2 sweeps M1 low and closes inside range
+            [100, 105, 98, 102],  # current/forming next CRT candle
+        ],
+        ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"],
+    )
+    dates = pd.date_range("2026-04-01", periods=45, freq="D")
+    lower = _ohlc([[100, 101, 99, 100]] * len(dates), dates)
+    result = _analyze_pair_with_monthly_crt_rules(higher, lower)
+
+    assert result["m1_high"] == 110.0
+    assert result["m1_low"] == 95.0
+    assert result["m2_low"] == 90.0
+    assert result["htf_sweep"] == "BULL SWEEP"
+    assert result["sweep_direction"] == "BULLISH"
+    assert result["stop_loss"] == 90.0
+    assert result["target"] == 110.0
+    assert result["entry_status"] == "WAIT CHoCH"
+
+
+def test_crt_rejects_m2_close_outside_full_m1_range():
+    from mtf_analysis import _analyze_pair_with_monthly_crt_rules
+
+    higher = _ohlc(
+        [
+            [100, 108, 96, 103],
+            [101, 110, 95, 104],
+            [102, 106, 90, 92],  # swept low but did not reclaim inside range
+            [100, 105, 98, 102],
+        ],
+        ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"],
+    )
+    dates = pd.date_range("2026-04-01", periods=45, freq="D")
+    lower = _ohlc([[100, 101, 99, 100]] * len(dates), dates)
+    result = _analyze_pair_with_monthly_crt_rules(higher, lower)
+
+    assert result["htf_sweep"] == "SWEEP WITHOUT FULL-RANGE RECLAIM"
+    assert result["entry_status"] == "WAIT"
+
+
+def test_crt_rejects_m2_double_sweep():
+    from mtf_analysis import _analyze_pair_with_monthly_crt_rules
+
+    higher = _ohlc(
+        [
+            [100, 108, 96, 103],
+            [101, 110, 95, 104],
+            [102, 112, 90, 100],  # both M1 sides swept
+            [100, 105, 98, 102],
+        ],
+        ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"],
+    )
+    dates = pd.date_range("2026-04-01", periods=45, freq="D")
+    lower = _ohlc([[100, 101, 99, 100]] * len(dates), dates)
+    result = _analyze_pair_with_monthly_crt_rules(higher, lower)
+
+    assert result["htf_sweep"] == "DOUBLE SWEEP — REJECTED"
+    assert result["entry_status"] == "REJECTED"
