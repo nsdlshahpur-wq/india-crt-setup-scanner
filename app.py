@@ -1030,9 +1030,11 @@ with screener_tab:
             display = screener_df[[c for c in preferred if c in screener_df.columns]].copy()
 
             # Main view shows CRT marking and entry plan; diagnostic timestamps stay expandable.
+            # Keep the primary table narrow and decision-focused.
+            # Full CRT levels, candle timestamps, alignment and diagnostics remain
+            # available in the Detailed data expander below.
             compact_columns = [
-                "HTF → LTF", "CRT M1 High", "CRT M1 Low", "CRT Sweep",
-                "Sweep Direction", "Entry-TF CHoCH", "Entry Zone",
+                "HTF → LTF", "CRT Sweep", "Entry-TF CHoCH",
                 "Retest Zone", "Entry Price", "Stop Loss", "Target", "Signal",
             ]
             detail_columns = [
