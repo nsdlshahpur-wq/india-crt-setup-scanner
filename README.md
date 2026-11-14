@@ -30,6 +30,18 @@ These are explicit mechanical OHLC rules. They may differ from discretionary cha
 
 **Important:** The BSE universe is the current exchange master, not historical point-in-time constituents. Delisted stocks and past constituent changes are missing (survivorship bias). Yahoo Finance history can be incomplete, adjusted or unavailable. Results are research estimates, not guaranteed or executable performance.
 
+## Central AI market intelligence
+
+The single Dashboard AI Command Centre combines:
+- Gemini explanations using the configured `GEMINI_API_KEY` and the current scanner/backtest session records.
+- Local quantitative breadth and regime snapshot from downloaded OHLC: advances/declines, percentage above SMA20/SMA50, 20-day returns, RSI(14), volatility, and strongest/weakest symbols.
+- Five-pair CRT setup summaries from the scanner records.
+- Optional public Google News RSS headline mood when the user asks about news/sentiment. The first implementation uses a transparent positive/negative finance keyword baseline, not FinBERT; it reports this limitation explicitly.
+
+The local regime label is rule-based, not an ML prediction. Breadth covers only symbols with sufficient valid downloaded history. Google News RSS coverage and headlines can be incomplete, duplicated or delayed. No paid news API key is required for this baseline.
+
+FinBERT is not bundled by default: the commonly used ProsusAI model weights are licensed CC BY-NC-SA 4.0, which restricts commercial use. Review model and dataset terms before adding any pretrained weights.
+
 ## Market data and limitations
 
 - Daily OHLC history is downloaded from Yahoo Finance through `yfinance`.
