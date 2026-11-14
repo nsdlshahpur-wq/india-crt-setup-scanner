@@ -159,7 +159,18 @@ def scan_symbol(symbol: str, timeframe: str = "4H", pivot_len: int = 5,
                 min_rr: float = 1.5) -> dict[str, Any]:
     """Scan one ticker on the requested HTF and return dashboard fields."""
     interval, resample, period = HTF_OPTIONS[timeframe]
-    ticker = yahoo_ticker(symbol)
+    raw_symbol = str(symbol).strip().upper()
+    if ":" in raw_symbol:
+        exchange, raw_symbol = raw_symbol.split(":", 1)
+        if exchange == "NSE":
+            raw_symbol = raw_symbol if raw_symbol.startswith("^") else raw_symbol
+        elif exchange == "BSE":
+            raw_symbol = raw_symbol if raw_symbol.startswith("^") else raw_symbol + ".BO"
+        elif exchange in ("NASDAQ", "NYSE"):
+            raw_symbol = raw_symbol
+        elif exchange == "BINANCE" and raw_symbol.endswith("USDT"):
+            raw_symbol = raw_symbol[:-4] + "-USD"
+    ticker = yahoo_ticker(raw_symbol)
     try:
         raw = yf.download(ticker, period=period, interval=interval,
                            auto_adjust=False, progress=False, threads=False,
