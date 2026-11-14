@@ -1231,21 +1231,15 @@ with screener_tab:
     if "crt_multi_screener_results" in st.session_state:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
+            htf_choch = screener_df["HTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
+            ltf_choch = screener_df["LTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
             display = pd.DataFrame({
                 "Symbol": screener_df["Symbol"],
-                "CRT": screener_df["HTF → LTF"],
-                "HTF Liquidity": screener_df["HTF Liquidity"],
-                "HTF CHoCH": screener_df["HTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False),
-                "LTF Liquidity": screener_df["LTF Liquidity"],
-                "LTF CHoCH": screener_df["LTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False),
+                "Timeframe": screener_df["HTF → LTF"],
+                "HTF Setup": screener_df["HTF Liquidity"].astype(str) + " | " + htf_choch,
+                "LTF Setup": screener_df["LTF Liquidity"].astype(str) + " | " + ltf_choch,
                 "Entry Zone": screener_df["Entry Zone"].replace({"—": "NOT FORMED"}),
-                "Retest": screener_df["Entry Status"].replace({
-                    "ORDER": "CONFIRMED", "WAIT RETEST": "WAITING",
-                    "WAIT ZONE": "ZONE PENDING"
-                }),
                 "Signal": screener_df["Signal"],
-                "HTF Close": screener_df["HTF Close"],
-                "LTF Close": screener_df["LTF Close"],
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
             st.download_button(
