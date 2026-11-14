@@ -1284,10 +1284,9 @@ with screener_tab:
                     return "BSE:" + raw[:-3]
                 return raw if raw.startswith(("NSE:", "BSE:")) else "NSE:" + raw
 
-            for symbol, symbol_rows in display.groupby("Symbol", sort=False):
-                tv_url = "https://www.tradingview.com/chart/?symbol=" + quote(_tradingview_symbol(symbol), safe="")
-                with st.expander(f"{symbol} · {len(symbol_rows)} timeframe pairs", expanded=True):
-                    st.markdown(f"[Open {symbol} on TradingView]({tv_url})")
+            # Symbol is intentionally hidden from the on-screen results and CSV.
+            for _, symbol_rows in display.groupby("Symbol", sort=False):
+                with st.expander(f"CRT Results · {len(symbol_rows)} timeframe pairs", expanded=True):
                     summary_columns = [c for c in compact_columns if c in symbol_rows.columns]
                     st.dataframe(
                         symbol_rows[summary_columns].reset_index(drop=True),
@@ -1299,14 +1298,14 @@ with screener_tab:
                                 symbol_rows[detail_columns].reset_index(drop=True),
                                 use_container_width=True, hide_index=True,
                             )
+            export_df = screener_df.drop(columns=["Symbol"], errors="ignore")
             st.download_button(
                 "⬇️ Download All-Timeframe Multi-Scanner CSV",
-                screener_df.to_csv(index=False).encode("utf-8-sig"),
+                export_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name="crt_multi_symbol_all_timeframes.csv",
                 mime="text/csv", key="download_crt_multi_screener",
             )
             st.caption(
-                f"Symbols: {screener_df['Symbol'].nunique()} · "
                 f"Timeframe rows: {len(screener_df)} · "
                 f"Time: {st.session_state.get('crt_multi_screener_time', '')}"
             )
