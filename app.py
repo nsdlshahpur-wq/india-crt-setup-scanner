@@ -1234,17 +1234,23 @@ with screener_tab:
             htf_choch = screener_df["HTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
             ltf_choch = screener_df["LTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
             display = pd.DataFrame({
-                "Symbol": screener_df["Symbol"],
-                "Timeframe": screener_df["HTF → LTF"],
-                "HTF Setup": screener_df["HTF Liquidity"].astype(str) + " | " + htf_choch,
-                "LTF Setup": screener_df["LTF Liquidity"].astype(str) + " | " + ltf_choch,
-                "Entry Zone": screener_df["Entry Zone"].replace({"—": "NOT FORMED"}),
-                "Signal": screener_df["Signal"],
+                "CRT": screener_df["HTF → LTF"].astype(str).str.split("→").str[0].str.strip(),
+                "Entry": screener_df["HTF → LTF"].astype(str).str.split("→").str[-1].str.strip(),
+                "Liquidity": "HTF: " + screener_df["HTF Liquidity"].astype(str) + " | LTF: " + screener_df["LTF Liquidity"].astype(str),
+                "MSS": "HTF: " + htf_choch + " | LTF: " + ltf_choch,
+                "Retest Price": screener_df["Entry Zone"].replace({"—": "—", "": "—"}).astype(str),
+                "Signals": screener_df["Signal"].astype(str),
             })
-            st.dataframe(display, use_container_width=True, hide_index=True)
+            # Keep the dashboard to the six columns requested; show each symbol as its own section.
+            for symbol, symbol_rows in display.groupby(screener_df["Symbol"].astype(str), sort=False):
+                st.markdown(f"**{symbol}**")
+                st.dataframe(symbol_rows.reset_index(drop=True), use_container_width=True, hide_index=True)
             st.download_button(
                 "⬇️ Download All-Timeframe Screener CSV",
-                display.to_csv(index=False).encode("utf-8-sig"),
+                pd.concat([
+                    pd.DataFrame({"Symbol": screener_df["Symbol"].astype(str)}),
+                    display
+                ], axis=1).to_csv(index=False).encode("utf-8-sig"),
                 file_name="crt_all_timeframe_multi_symbol_screener.csv",
                 mime="text/csv",
                 key="download_crt_multi_screener"
