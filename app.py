@@ -1262,6 +1262,17 @@ with screener_tab:
                 "HTF Candle", "LTF Candle",
             ]
             display = screener_df[[c for c in preferred if c in screener_df.columns]].copy()
+
+            # Keep the default view narrow; put diagnostic fields behind an expander.
+            compact_columns = [
+                "HTF → LTF", "HTF Liquidity", "LTF MSS",
+                "Entry Zone", "Entry Status", "Signal",
+            ]
+            detail_columns = [
+                c for c in display.columns
+                if c not in ("Symbol", *compact_columns)
+            ]
+
             def _tradingview_symbol(raw_symbol: str) -> str:
                 raw = str(raw_symbol).strip().upper()
                 known_indices = {
@@ -1278,9 +1289,19 @@ with screener_tab:
 
             for symbol, symbol_rows in display.groupby("Symbol", sort=False):
                 tv_url = "https://www.tradingview.com/chart/?symbol=" + quote(_tradingview_symbol(symbol), safe="")
-                st.markdown(f"[**{symbol}**]({tv_url})")
-                st.dataframe(symbol_rows.drop(columns=["Symbol"]).reset_index(drop=True),
-                             use_container_width=True, hide_index=True)
+                with st.expander(f"{symbol} · {len(symbol_rows)} timeframe pairs", expanded=True):
+                    st.markdown(f"[Open {symbol} on TradingView]({tv_url})")
+                    summary_columns = [c for c in compact_columns if c in symbol_rows.columns]
+                    st.dataframe(
+                        symbol_rows[summary_columns].reset_index(drop=True),
+                        use_container_width=True, hide_index=True,
+                    )
+                    if detail_columns:
+                        with st.expander("Detailed data (prices, alignment and candles)"):
+                            st.dataframe(
+                                symbol_rows[detail_columns].reset_index(drop=True),
+                                use_container_width=True, hide_index=True,
+                            )
             st.download_button(
                 "⬇️ Download All-Timeframe Multi-Scanner CSV",
                 screener_df.to_csv(index=False).encode("utf-8-sig"),
