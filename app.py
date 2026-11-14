@@ -15,7 +15,6 @@ from data_fetch import download_market_data
 from scanner import ScanConfig, scan_symbol
 from backtest import BacktestConfig, run_backtest
 from universe import make_universe
-from crt_ai import train_crt_model, score_crt_signals
 from mtf_analysis import analyze_mtf_symbol
 from multi_symbol_scanner import scan_symbols
 
@@ -131,9 +130,6 @@ with scanner_tab:
                 scan_progress.progress(i / total_scan_rows, text=f"Scanning {i:,}/{len(scan_rows):,}")
     
             result_df = pd.DataFrame(rows)
-            ensemble_model = st.session_state.get("crt_ensemble_model")
-            if ensemble_model is not None and not result_df.empty:
-                result_df = score_crt_signals(ensemble_model, result_df)
             if not result_df.empty:
                 stage_order = {3: 0, 2: 1, 1: 2, 4: 3, 5: 4, 6: 5, 7: 6, 0: 7}
                 result_df["_order"] = result_df["Stage"].map(stage_order).fillna(8)
@@ -219,7 +215,7 @@ with scanner_tab:
             if only_setup:
                 view = view[(view["Stage"] == 3) & view["Setup"].isin(["BUY", "SELL"])]
             preferred = [
-                "Name", "Exchange", "Category", "Bias", "Setup", "AI Success Probability %", "AI Model Agreement %", "AI Model Votes", "LTP", "Entry", "SL", "T1 (2R)",
+                "Name", "Exchange", "Category", "Bias", "Setup", "LTP", "Entry", "SL", "T1 (2R)",
                 "Target (M1 Monthly H/L)", "Target Status", "Entry Status", "Invalidation", "M1 High", "M1 Low", "M2 High", "M2 Low",
                 "M2 Close", "M3 Month", "Sweep Type", "Sweep Date", "CHoCH Pivot Date", "CHoCH Reference Level",
                 "CHoCH Date", "CHoCH Rule", "Entry Date", "Entry Confirmation Rule", "Entry Zone Type",
@@ -684,12 +680,6 @@ with backtest_tab:
                  scan_config=scan_cfg,
                  progress_callback=bt_scan_progress
              )
-             model_result = train_crt_model(bt_result["trades"])
-             st.session_state["crt_ensemble_report"] = model_result.report
-             if model_result.model is not None:
-                 st.session_state["crt_ensemble_model"] = model_result.model
-             else:
-                 st.session_state.pop("crt_ensemble_model", None)
              st.session_state["bse_backtest_result"] = bt_result
              st.session_state["bse_backtest_meta"] = {
                  "universe_count": len(bse_universe), "data_count": len(bt_prices),
@@ -707,19 +697,6 @@ with backtest_tab:
          trades = bt["trades"]
          curve = bt["equity_curve"]
          st.divider()
-         ensemble_report = st.session_state.get("crt_ensemble_report", {})
-         st.subheader("🧠 CRT Historical ML Ensemble")
-         if ensemble_report.get("status") == "ready":
-             ec = st.columns(4)
-             ec[0].metric("AI labelled trades", f"{ensemble_report['sample_count']:,}")
-             ec[1].metric("Ensemble holdout accuracy", f"{ensemble_report['accuracy']*100:.1f}%")
-             ec[2].metric("Balanced accuracy", f"{ensemble_report['balanced_accuracy']*100:.1f}%")
-             ec[3].metric("Brier score", f"{ensemble_report['brier_score']:.3f}")
-             st.caption("Models: " + ", ".join(ensemble_report.get("model_names", [])) + f" · Out-of-sample period: {ensemble_report.get('test_start')} to {ensemble_report.get('test_end')}")
-             st.dataframe(pd.DataFrame([{"Model": name, **scores} for name, scores in ensemble_report.get("individual_models", {}).items()]), use_container_width=True, hide_index=True)
-             st.success("Ensemble trained. अब अगला All Stocks / All Index scan हर fresh Stage-3 BUY/SELL setup पर AI probability दिखाएगा.")
-         else:
-             st.warning(ensemble_report.get("message", "इस backtest में AI training के लिए पर्याप्त closed WIN/LOSS trades नहीं हैं."))
          st.caption(
              f"Universe: {meta.get('universe_count', 0):,} current India stock/index listings · "
              f"Data received: {meta.get('data_count', 0):,} · "
