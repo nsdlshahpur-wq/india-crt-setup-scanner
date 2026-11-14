@@ -229,7 +229,7 @@ def _analyze_pair_with_monthly_crt_rules(
         return {
             **empty,
             "htf_sweep": sweep_label,
-            "ltf_sweep": "—",
+            "ltf_sweep": sweep_label,
             "htf_choch": "NO",
             "ltf_choch": "NO",
             "alignment": "WAIT — LTF CHoCH NOT CONFIRMED",
