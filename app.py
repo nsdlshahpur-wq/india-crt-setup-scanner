@@ -1181,21 +1181,21 @@ with mtf_tab:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
 
 with screener_tab:
-    st.header("🔎 Monthly CRT Multi-Symbol Scanner")
+    st.header("🔎 CRT Multi-Timeframe Multi-Symbol Screener")
     st.caption(
-        "M1 Monthly range → M2 one-side liquidity sweep + full-range reclaim → "
-        "Daily CHoCH → FVG / IFVG / OB / BOB retest → confirming Daily close."
+        "हर selected symbol पर सभी पाँच timeframe pairs में एक ही CRT strategy लागू होगी: "
+        "HTF M1 range → HTF M2 one-side sweep + full-range reclaim → LTF CHoCH → "
+        "FVG / IFVG / OB / BOB retest → directional LTF close."
     )
     st.info(
-        "SL sweep-candle extreme पर और Target M1 की opposite liquidity boundary पर रहेगा. "
-        "यह read-only scanner है; broker order place नहीं करता। Yahoo Finance का Daily data "
-        "delayed या unavailable हो सकता है।"
+        "Pairs: Monthly→Daily · Weekly→4H · Daily→1H · 4H→5m · 1H→5m. "
+        "SL sweep candle के extreme पर और Target HTF M1 की opposite liquidity boundary पर. "
+        "Scanner read-only है; broker orders नहीं देता।"
     )
     screener_universe_choice = st.radio(
         "Search किस सूची में करना है?",
         ["All Index", "All Stocks", "All India Stocks + Indices"],
-        horizontal=True,
-        key="crt_screener_universe_choice",
+        horizontal=True, key="crt_screener_universe_choice",
     )
     screener_mode_map = {
         "All Index": "All Indian indices",
@@ -1219,8 +1219,7 @@ with screener_tab:
         }
         selected_screener_labels = st.multiselect(
             "Index / Stock Search करें और चुनें (अधिकतम 10)",
-            options=list(screener_labels.keys()),
-            max_selections=10,
+            options=list(screener_labels.keys()), max_selections=10,
             key="crt_multi_screener_selected",
             placeholder="NIFTY 50, BANK NIFTY, RELIANCE, HDFC BANK आदि खोजें...",
         )
@@ -1231,41 +1230,36 @@ with screener_tab:
         requested = []
 
     st.markdown(
-        "**Strategy sequence:** Monthly M1/M2 sweep-reclaim → Daily CHoCH → "
-        "FVG / IFVG / OB / BOB retest → confirming Daily close."
+        "**Same strategy on every pair:** M1/M2 HTF liquidity sweep & reclaim → "
+        "LTF CHoCH → FVG / IFVG / OB / BOB retest → confirming LTF close."
     )
     run_screener = st.button(
-        "🔍 Scan Selected Symbols", type="primary", key="run_crt_multi_screener",
-        disabled=not requested,
+        "🔍 Scan Selected Symbols × All 5 Timeframes",
+        type="primary", key="run_crt_multi_screener", disabled=not requested,
     )
     if run_screener:
-        progress = st.progress(0.0, text="Starting Monthly CRT / Daily scan...")
+        progress = st.progress(0.0, text="Starting all-pair CRT scan...")
         status = st.empty()
-        all_rows = []
-        for idx, symbol in enumerate(requested, start=1):
-            status.caption(f"Scanning {idx}/{len(requested)}: {symbol}")
-            try:
-                row = scan_symbols([symbol]).to_dict("records")
-                if row:
-                    all_rows.extend(row)
-            except Exception as exc:
-                all_rows.append({
-                    "Symbol": symbol, "Signal": "WAIT", "Setup": "DATA ERROR",
-                    "Status": f"{type(exc).__name__}: {str(exc)[:180]}",
-                })
-            progress.progress(idx / len(requested), text=f"Scanned {idx}/{len(requested)} symbols")
-        combined = pd.DataFrame(all_rows)
+        try:
+            combined, all_errors = scan_symbols(requested)
+        except Exception as exc:
+            combined = pd.DataFrame()
+            all_errors = {"ALL": f"{type(exc).__name__}: {str(exc)[:180]}"}
+        progress.progress(1.0, text="All selected symbols processed")
         st.session_state["crt_multi_screener_results"] = combined
+        st.session_state["crt_multi_screener_errors"] = all_errors
         st.session_state["crt_multi_screener_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
-        status.success("Monthly CRT → Daily scan पूरा हुआ।")
+        status.success("हर selected symbol के सभी पाँच timeframe pairs का scan पूरा हुआ।")
 
     if "crt_multi_screener_results" in st.session_state:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
             preferred = [
-                "Symbol", "HTF Trend", "Monthly Status", "Sweep", "MSS", "Zone",
-                "Signal", "Entry", "SL", "Target", "RR", "Entry Status",
-                "Target Status", "Status",
+                "Symbol", "HTF → LTF", "HTF Liquidity", "HTF MSS",
+                "LTF Liquidity", "LTF MSS", "Entry Zone", "Retest Zone",
+                "Retest Price", "Entry Price", "Entry Time", "Alignment",
+                "Entry Status", "Signal", "HTF Close", "LTF Close",
+                "HTF Candle", "LTF Candle",
             ]
             display = screener_df[[c for c in preferred if c in screener_df.columns]].copy()
             def _tradingview_symbol(raw_symbol: str) -> str:
@@ -1288,19 +1282,27 @@ with screener_tab:
                 st.dataframe(symbol_rows.drop(columns=["Symbol"]).reset_index(drop=True),
                              use_container_width=True, hide_index=True)
             st.download_button(
-                "⬇️ Download Monthly CRT Multi-Scanner CSV",
+                "⬇️ Download All-Timeframe Multi-Scanner CSV",
                 screener_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name="monthly_crt_daily_multi_scanner.csv",
+                file_name="crt_multi_symbol_all_timeframes.csv",
                 mime="text/csv", key="download_crt_multi_screener",
             )
             st.caption(
                 f"Symbols: {screener_df['Symbol'].nunique()} · "
+                f"Timeframe rows: {len(screener_df)} · "
                 f"Time: {st.session_state.get('crt_multi_screener_time', '')}"
             )
         else:
-            st.info("चुने गए symbols के लिए usable Daily data नहीं मिला।")
+            st.info("चुने गए symbols के लिए usable timeframe data नहीं मिला।")
+        errors = st.session_state.get("crt_multi_screener_errors", {})
+        if errors:
+            with st.expander("Data availability / errors"):
+                st.dataframe(
+                    pd.DataFrame([{"Symbol / Pair": k, "Error": v} for k, v in errors.items()]),
+                    use_container_width=True, hide_index=True,
+                )
     st.caption(
-        "Entry confirmation retest के बाद directional completed Daily close पर होती है. "
-        "SL sweep candle के low/high और Target M1 Monthly range की opposite boundary है. "
-        "यह scanner signal की गारंटी नहीं देता और broker execution नहीं करता।"
+        "Five configured pairs पर समान CRT flow लागू है. Yahoo Finance data availability/interval limits "
+        "के कारण किसी pair में data missing हो सकता है; ऐसे pair को error/WAIT के रूप में दिखाया जाएगा. "
+        "यह signal-only scanner है, execution system नहीं।"
     )
