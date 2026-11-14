@@ -248,7 +248,7 @@ def _analyze_pair_with_monthly_crt_rules(
     zone_names = list(dict.fromkeys(z["type"] for z in active_zones))
     base = {
         "htf_sweep": sweep_label,
-        "ltf_sweep": "—",
+        "ltf_sweep": sweep_label,
         "htf_choch": "NO",
         "ltf_choch": choch_label,
         "zone": "+".join(zone_names) if zone_names else "—",
