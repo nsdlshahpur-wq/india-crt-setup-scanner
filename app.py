@@ -1231,15 +1231,20 @@ with screener_tab:
     if "crt_multi_screener_results" in st.session_state:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
-            htf_choch = screener_df["HTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
-            ltf_choch = screener_df["LTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False)
+            htf_choch = screener_df["HTF MSS"].astype(str).str.replace("BULL MSS", "BULL CHoCH", regex=False).str.replace("BEAR MSS", "BEAR CHoCH", regex=False)
+            ltf_choch = screener_df["LTF MSS"].astype(str).str.replace("BULL MSS", "BULL CHoCH", regex=False).str.replace("BEAR MSS", "BEAR CHoCH", regex=False)
+            raw_signal = screener_df["Signal"].astype(str)
+            signal_display = raw_signal.replace({
+                "BULL ORDER": "BUY", "BEAR ORDER": "SELL"
+            })
+            retest_zone = screener_df.get("Retest Zone", pd.Series("—", index=screener_df.index)).fillna("—").astype(str)
             display = pd.DataFrame({
                 "CRT": screener_df["HTF → LTF"].astype(str).str.split("→").str[0].str.strip(),
                 "Entry": screener_df["HTF → LTF"].astype(str).str.split("→").str[-1].str.strip(),
                 "Liquidity": "HTF: " + screener_df["HTF Liquidity"].astype(str) + " | LTF: " + screener_df["LTF Liquidity"].astype(str),
                 "MSS": "HTF: " + htf_choch + " | LTF: " + ltf_choch,
-                "Retest Price": screener_df["Entry Zone"].replace({"—": "—", "": "—"}).astype(str),
-                "Signals": screener_df["Signal"].astype(str),
+                "Retest Price": retest_zone,
+                "Signals": signal_display,
             })
             # Keep the dashboard to the six columns requested; show each symbol as its own section.
             for symbol, symbol_rows in display.groupby(screener_df["Symbol"].astype(str), sort=False):
