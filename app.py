@@ -1185,23 +1185,52 @@ with screener_tab:
         "हर चुने हुए Symbol को एक ही Scan में आपके तय किए हुए सभी पाँच HTF → LTF pairs पर जाँचा जाएगा। "
         "अधिकतम 10 symbols; scanner read-only है।"
     )
-    screener_symbols = st.text_area(
-        "Symbols (comma separated, maximum 10)",
-        value="NSE:NIFTY, NSE:BANKNIFTY, NSE:RELIANCE, NSE:HDFCBANK, NSE:ICICIBANK",
-        height=90,
-        key="crt_multi_screener_symbols",
-        help="उदाहरण: NIFTY, RELIANCE, HDFCBANK. Yahoo Finance पर उपलब्ध ticker ही scan होंगे।"
+    screener_universe_choice = st.radio(
+        "Search किस सूची में करना है?",
+        ["All Index", "All Stocks", "All India Stocks + Indices"],
+        horizontal=True,
+        key="crt_screener_universe_choice",
     )
+    screener_mode_map = {
+        "All Index": "All Indian indices",
+        "All Stocks": "All NSE EQ stocks",
+        "All India Stocks + Indices": "All India stocks + indices",
+    }
+
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _load_screener_universe(mode: str) -> pd.DataFrame:
+        return make_universe(mode)
+
+    try:
+        with st.spinner("Index / Stock search list लोड हो रही है..."):
+            screener_universe = _load_screener_universe(screener_mode_map[screener_universe_choice])
+        screener_universe = screener_universe[
+            screener_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
+        ].drop_duplicates(subset=["Symbol", "Name", "Exchange"])
+        screener_labels = {
+            f"{row.Name} | {row.Exchange} | {row.Symbol}": row.Symbol
+            for row in screener_universe.itertuples(index=False)
+        }
+        selected_screener_labels = st.multiselect(
+            "Index / Stock Search करें और चुनें (अधिकतम 10)",
+            options=list(screener_labels.keys()),
+            max_selections=10,
+            key="crt_multi_screener_selected",
+            placeholder="NIFTY 50, BANK NIFTY, RELIANCE, HDFC BANK आदि खोजें...",
+        )
+        requested = list(dict.fromkeys(screener_labels[label] for label in selected_screener_labels))
+        st.caption(f"इस सूची में {len(screener_labels):,} symbols उपलब्ध · चुने गए: {len(requested)}/10")
+    except Exception as exc:
+        st.error(f"Index / Stock search list लोड नहीं हो सकी: {exc}")
+        requested = []
+
     st.markdown(
         "**एक साथ स्कैन होने वाले Timeframe Pairs:** "
         "Monthly → Daily · Weekly → 4H · Daily → 1H · 4H → 5m · 1H → 5m"
     )
     run_screener = st.button("🔍 Scan All Symbols × All Timeframes", type="primary", key="run_crt_multi_screener")
     if run_screener:
-        requested = list(dict.fromkeys(
-            item.strip() for item in screener_symbols.replace("\\n", ",").split(",")
-            if item.strip()
-        ))
+        requested = list(dict.fromkeys(requested))
         if not requested:
             st.warning("कम-से-कम एक symbol दर्ज करें।")
         elif len(requested) > 10:
