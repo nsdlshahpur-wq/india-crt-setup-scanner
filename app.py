@@ -780,7 +780,7 @@ with ai_tab:
             context_parts.append(f"{label}: only first {limit} of {len(frame)} rows are included; disclose this limitation.")
 
     _ai_table_context("crt_mtf_results", "Latest five-pair MTF scanner records", 1500)
-    _ai_table_context("multi_symbol_results", "Latest Multi-Symbol screener records", 1500)
+    _ai_table_context("crt_multi_screener_results", "Latest Multi-Symbol screener records", 1500)
     if "crt_mtf_scan_time" in st.session_state:
         context_parts.append(
             f"MTF scan time={st.session_state.get('crt_mtf_scan_time')}; "
@@ -1168,17 +1168,17 @@ with mtf_tab:
                     "Symbol": visible_mtf["Symbol"],
                     "Name": visible_mtf["Name"],
                     "CRT (HTF → LTF)": visible_mtf["HTF → LTF"],
-                    "HTF Setup (Sweep + CHoCH)": visible_mtf.apply(
-                        lambda r: _setup_status(r, "HTF"), axis=1
-                    ),
-                    "LTF Setup (Sweep + CHoCH)": visible_mtf.apply(
-                        lambda r: _setup_status(r, "LTF"), axis=1
-                    ),
+                    "M1 High": visible_mtf["CRT M1 High"],
+                    "M1 Low": visible_mtf["CRT M1 Low"],
+                    "M2 Sweep": visible_mtf["CRT Sweep"],
+                    "Sweep Direction": visible_mtf["Sweep Direction"],
+                    "Entry-TF CHoCH": visible_mtf["Entry-TF CHoCH"],
                     "Entry Zone": visible_mtf["Entry Zone"].replace({"—": "NOT FORMED"}),
-                    "Retest": visible_mtf["Entry Status"].replace({
-                        "ORDER": "CONFIRMED", "WAIT RETEST": "WAITING",
-                        "WAIT ZONE": "ZONE PENDING"
-                    }),
+                    "Retest": visible_mtf["Entry Status"],
+                    "Entry": visible_mtf["Entry Price"],
+                    "SL": visible_mtf["Stop Loss"],
+                    "Target": visible_mtf["Target"],
+                    "RR": visible_mtf["RR"],
                     "Signal": visible_mtf["Signal"],
                 })
                 st.dataframe(compact_mtf, use_container_width=True, hide_index=True)
