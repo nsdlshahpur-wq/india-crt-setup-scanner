@@ -1234,7 +1234,11 @@ with screener_tab:
         progress = st.progress(0.0, text="Starting all-pair CRT scan...")
         status = st.empty()
         try:
-            combined, all_errors = scan_symbols(requested)
+            def _screener_progress(done: int, total: int, symbol: str):
+                progress.progress(done / max(total, 1), text=f"Scanning {done:,}/{total:,}: {symbol}")
+                status.caption(f"Current symbol: {symbol}")
+
+            combined, all_errors = scan_symbols(requested, progress_callback=_screener_progress)
         except Exception as exc:
             combined = pd.DataFrame()
             all_errors = {"ALL": f"{type(exc).__name__}: {str(exc)[:180]}"}
