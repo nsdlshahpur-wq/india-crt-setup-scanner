@@ -16,6 +16,7 @@ from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from crt_ai import train_crt_model, score_crt_signals
 from mtf_analysis import analyze_mtf_symbol
+from multi_symbol_scanner import scan_symbols
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -42,7 +43,7 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
-scanner_tab, backtest_tab, ai_tab, mtf_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest", "🤖 CRT AI Assistant", "🧭 CRT MTF Analysis"]) 
+scanner_tab, backtest_tab, ai_tab, mtf_tab, screener_tab = st.tabs(["📡 CRT Scanner", "📈 Backtest", "🤖 CRT AI Assistant", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener"]) 
 
 with scanner_tab:
     col_a, col_b = st.columns([1, 4])
@@ -1177,3 +1178,91 @@ with mtf_tab:
             )
     except Exception as exc:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
+
+with screener_tab:
+    st.header("🔎 CRT Multi-Symbol Screener")
+    st.caption(
+        "Pine Script scanner specification का Python implementation. एक बार में अधिकतम 10 symbols; "
+        "यह read-only scanner है और broker order place नहीं करता।"
+    )
+    screener_symbols = st.text_area(
+        "Symbols (comma separated, maximum 10)",
+        value="NSE:NIFTY, NSE:BANKNIFTY, NSE:RELIANCE, NSE:HDFCBANK, NSE:ICICIBANK",
+        height=90,
+        key="crt_multi_screener_symbols",
+        help="उदाहरण: NSE:NIFTY, NSE:RELIANCE, BINANCE:BTCUSDT. Yahoo Finance पर उपलब्ध ticker ही scan होंगे।"
+    )
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        screener_htf = st.selectbox(
+            "Higher Timeframe",
+            ["4H", "1H", "Daily", "Weekly", "Monthly"],
+            index=0,
+            key="crt_multi_screener_htf"
+        )
+    with sc2:
+        screener_pivot = st.number_input(
+            "Pivot Length", min_value=2, max_value=20, value=5,
+            key="crt_multi_screener_pivot"
+        )
+    with sc3:
+        screener_rr = st.number_input(
+            "Minimum Risk : Reward", min_value=0.5, max_value=10.0,
+            value=1.5, step=0.1, key="crt_multi_screener_rr"
+        )
+    run_screener = st.button("🔍 Scan Symbols", type="primary", key="run_crt_multi_screener")
+    if run_screener:
+        requested = list(dict.fromkeys(
+            item.strip() for item in screener_symbols.replace("\\n", ",").split(",")
+            if item.strip()
+        ))
+        if not requested:
+            st.warning("कम-से-कम एक symbol दर्ज करें।")
+        elif len(requested) > 10:
+            st.error(f"आपने {len(requested)} symbols दिए हैं। इस screener में अधिकतम 10 symbols अनुमत हैं।")
+        else:
+            from multi_symbol_scanner import scan_symbols
+            progress = st.progress(0.0, text="Starting screener...")
+            results = []
+            for idx, symbol in enumerate(requested, start=1):
+                progress.progress((idx - 1) / len(requested), text=f"Scanning {idx}/{len(requested)}: {symbol}")
+                results.append(scan_symbols(
+                    [symbol],
+                    timeframe=screener_htf,
+                    pivot_len=int(screener_pivot),
+                    min_rr=float(screener_rr),
+                ))
+            screener_df = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
+            st.session_state["crt_multi_screener_results"] = screener_df
+            st.session_state["crt_multi_screener_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
+            progress.progress(1.0, text="Scan complete")
+    if "crt_multi_screener_results" in st.session_state:
+        screener_df = st.session_state["crt_multi_screener_results"].copy()
+        if not screener_df.empty:
+            display = screener_df[[
+                "Symbol", "HTF Trend", "Sweep", "MSS", "Zone", "Signal", "Price", "RR", "Status"
+            ]].copy()
+            st.dataframe(
+                display,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Price": st.column_config.NumberColumn("Price", format="%.2f"),
+                    "RR": st.column_config.NumberColumn("RR", format="%.2f"),
+                }
+            )
+            st.download_button(
+                "⬇️ Download Screener CSV",
+                display.to_csv(index=False).encode("utf-8-sig"),
+                file_name="crt_multi_symbol_screener.csv",
+                mime="text/csv",
+                key="download_crt_multi_screener"
+            )
+            st.caption(f"Scanned: {len(display)} · Time: {st.session_state.get('crt_multi_screener_time', '')}")
+        else:
+            st.info("अभी कोई screener result उपलब्ध नहीं है।")
+    st.caption(
+        "Logic note: HTF candle sweep, confirmed pivot-based Dow structure/MSS, recent FVG या simplified OB tap और CRT range आधारित RR filter। "
+        "यह Pine Script के बताए गए logic का Python adaptation है; दोनों platforms के OHLC feed, candle close और implementation के कारण परिणाम अलग हो सकते हैं।"
+    )
+
