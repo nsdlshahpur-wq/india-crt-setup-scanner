@@ -182,7 +182,9 @@ def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
                 "HTF → LTF": pair,
                 "HTF Liquidity": hs["sweep"], "HTF MSS": hs["mss"],
                 "LTF Liquidity": ls["sweep"], "LTF MSS": ls["mss"],
-                "Entry Zone": entry["zone"], "Retest Price": entry["retest_price"],
+                "Entry Zone": entry["zone"],
+                "Retest Zone": entry["zone"] if entry["status"] == "ORDER" else "—",
+                "Retest Price": entry["retest_price"],
                 "Entry Price": entry["entry"], "Entry Time": entry["entry_time"],
                 "Alignment": alignment, "Entry Status": entry["status"], "Signal": signal,
                 "HTF Close": hs["close"], "LTF Close": ls["close"],
@@ -195,7 +197,7 @@ def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
             rows.append({
                 "HTF → LTF": pair, "HTF Liquidity": "ERROR", "HTF MSS": "—",
                 "LTF Liquidity": "ERROR", "LTF MSS": "—", "Entry Zone": "—",
-                "Retest Price": None, "Entry Price": None, "Entry Time": None,
+                "Retest Zone": "—", "Retest Price": None, "Entry Price": None, "Entry Time": None,
                 "Alignment": "DATA ERROR", "Entry Status": "WAIT", "Signal": "WAIT",
                 "HTF Close": None, "LTF Close": None, "HTF Candle": None, "LTF Candle": None,
             })
