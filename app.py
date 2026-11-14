@@ -1180,37 +1180,23 @@ with mtf_tab:
         st.error(f"Index / Stock universe लोड नहीं हो सका: {exc}")
 
 with screener_tab:
-    st.header("🔎 CRT Multi-Symbol Screener")
+    st.header("🔎 CRT Multi-Timeframe Multi-Symbol Screener")
     st.caption(
-        "Pine Script scanner specification का Python implementation. एक बार में अधिकतम 10 symbols; "
-        "यह read-only scanner है और broker order place नहीं करता।"
+        "हर चुने हुए Symbol को एक ही Scan में आपके तय किए हुए सभी पाँच HTF → LTF pairs पर जाँचा जाएगा। "
+        "अधिकतम 10 symbols; scanner read-only है।"
     )
     screener_symbols = st.text_area(
         "Symbols (comma separated, maximum 10)",
         value="NSE:NIFTY, NSE:BANKNIFTY, NSE:RELIANCE, NSE:HDFCBANK, NSE:ICICIBANK",
         height=90,
         key="crt_multi_screener_symbols",
-        help="उदाहरण: NSE:NIFTY, NSE:RELIANCE, BINANCE:BTCUSDT. Yahoo Finance पर उपलब्ध ticker ही scan होंगे।"
+        help="उदाहरण: NIFTY, RELIANCE, HDFCBANK. Yahoo Finance पर उपलब्ध ticker ही scan होंगे।"
     )
-    sc1, sc2, sc3 = st.columns(3)
-    with sc1:
-        screener_htf = st.selectbox(
-            "Higher Timeframe",
-            ["4H", "1H", "Daily", "Weekly", "Monthly"],
-            index=0,
-            key="crt_multi_screener_htf"
-        )
-    with sc2:
-        screener_pivot = st.number_input(
-            "Pivot Length", min_value=2, max_value=20, value=5,
-            key="crt_multi_screener_pivot"
-        )
-    with sc3:
-        screener_rr = st.number_input(
-            "Minimum Risk : Reward", min_value=0.5, max_value=10.0,
-            value=1.5, step=0.1, key="crt_multi_screener_rr"
-        )
-    run_screener = st.button("🔍 Scan Symbols", type="primary", key="run_crt_multi_screener")
+    st.markdown(
+        "**एक साथ स्कैन होने वाले Timeframe Pairs:** "
+        "Monthly → Daily · Weekly → 4H · Daily → 1H · 4H → 5m · 1H → 5m"
+    )
+    run_screener = st.button("🔍 Scan All Symbols × All Timeframes", type="primary", key="run_crt_multi_screener")
     if run_screener:
         requested = list(dict.fromkeys(
             item.strip() for item in screener_symbols.replace("\\n", ",").split(",")
@@ -1221,48 +1207,69 @@ with screener_tab:
         elif len(requested) > 10:
             st.error(f"आपने {len(requested)} symbols दिए हैं। इस screener में अधिकतम 10 symbols अनुमत हैं।")
         else:
-            from multi_symbol_scanner import scan_symbols
-            progress = st.progress(0.0, text="Starting screener...")
-            results = []
+            progress = st.progress(0.0, text="Starting all-timeframe scan...")
+            status = st.empty()
+            all_results = []
+            all_errors = {}
             for idx, symbol in enumerate(requested, start=1):
-                progress.progress((idx - 1) / len(requested), text=f"Scanning {idx}/{len(requested)}: {symbol}")
-                results.append(scan_symbols(
-                    [symbol],
-                    timeframe=screener_htf,
-                    pivot_len=int(screener_pivot),
-                    min_rr=float(screener_rr),
-                ))
-            screener_df = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
-            st.session_state["crt_multi_screener_results"] = screener_df
+                status.caption(f"Scanning {idx}/{len(requested)}: {symbol} — all 5 timeframe pairs")
+                try:
+                    symbol_df, symbol_errors = analyze_mtf_symbol(symbol)
+                    if not symbol_df.empty:
+                        symbol_df.insert(0, "Symbol", symbol)
+                        all_results.append(symbol_df)
+                    if symbol_errors:
+                        all_errors[symbol] = "; ".join(f"{tf}: {msg}" for tf, msg in symbol_errors.items())
+                except Exception as exc:
+                    all_errors[symbol] = f"{type(exc).__name__}: {str(exc)[:180]}"
+                progress.progress(idx / len(requested), text=f"Scanned {idx}/{len(requested)} symbols")
+            combined = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
+            st.session_state["crt_multi_screener_results"] = combined
+            st.session_state["crt_multi_screener_errors"] = all_errors
             st.session_state["crt_multi_screener_time"] = datetime.now().strftime("%d-%b-%Y %I:%M:%S %p")
-            progress.progress(1.0, text="Scan complete")
+            status.success("सभी चुने हुए Symbols के पाँचों Timeframe Pairs का scan पूरा हुआ।")
     if "crt_multi_screener_results" in st.session_state:
         screener_df = st.session_state["crt_multi_screener_results"].copy()
         if not screener_df.empty:
-            display = screener_df[[
-                "Symbol", "HTF Trend", "Sweep", "MSS", "Zone", "Signal", "Price", "RR", "Status"
-            ]].copy()
-            st.dataframe(
-                display,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Price": st.column_config.NumberColumn("Price", format="%.2f"),
-                    "RR": st.column_config.NumberColumn("RR", format="%.2f"),
-                }
-            )
+            display = pd.DataFrame({
+                "Symbol": screener_df["Symbol"],
+                "CRT": screener_df["HTF → LTF"],
+                "HTF Liquidity": screener_df["HTF Liquidity"],
+                "HTF CHoCH": screener_df["HTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False),
+                "LTF Liquidity": screener_df["LTF Liquidity"],
+                "LTF CHoCH": screener_df["LTF MSS"].astype(str).str.replace("MSS", "CHoCH", regex=False),
+                "Entry Zone": screener_df["Entry Zone"].replace({"—": "NOT FORMED"}),
+                "Retest": screener_df["Entry Status"].replace({
+                    "ORDER": "CONFIRMED", "WAIT RETEST": "WAITING",
+                    "WAIT ZONE": "ZONE PENDING"
+                }),
+                "Signal": screener_df["Signal"],
+                "HTF Close": screener_df["HTF Close"],
+                "LTF Close": screener_df["LTF Close"],
+            })
+            st.dataframe(display, use_container_width=True, hide_index=True)
             st.download_button(
-                "⬇️ Download Screener CSV",
+                "⬇️ Download All-Timeframe Screener CSV",
                 display.to_csv(index=False).encode("utf-8-sig"),
-                file_name="crt_multi_symbol_screener.csv",
+                file_name="crt_all_timeframe_multi_symbol_screener.csv",
                 mime="text/csv",
                 key="download_crt_multi_screener"
             )
-            st.caption(f"Scanned: {len(display)} · Time: {st.session_state.get('crt_multi_screener_time', '')}")
+            st.caption(
+                f"Symbols: {screener_df['Symbol'].nunique()} · "
+                f"Timeframe rows: {len(display)} · "
+                f"Time: {st.session_state.get('crt_multi_screener_time', '')}"
+            )
         else:
-            st.info("अभी कोई screener result उपलब्ध नहीं है।")
+            st.info("चुने गए symbols के लिए usable timeframe data नहीं मिला।")
+        errors = st.session_state.get("crt_multi_screener_errors", {})
+        if errors:
+            with st.expander("Data availability / errors"):
+                st.dataframe(
+                    pd.DataFrame([{"Symbol": k, "Error": v} for k, v in errors.items()]),
+                    use_container_width=True, hide_index=True
+                )
     st.caption(
-        "Logic note: HTF candle sweep, confirmed pivot-based Dow structure/MSS, recent FVG या simplified OB tap और CRT range आधारित RR filter। "
-        "यह Pine Script के बताए गए logic का Python adaptation है; दोनों platforms के OHLC feed, candle close और implementation के कारण परिणाम अलग हो सकते हैं।"
+        "Pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m और 1H→5m. "
+        "मौजूदा MTF engine के sweep/MSS और zone logic के अनुसार परिणाम आएँगे; यह Pine Script के हर advanced rule का 1:1 port नहीं है।"
     )
-
