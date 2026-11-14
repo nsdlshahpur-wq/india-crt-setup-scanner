@@ -139,10 +139,10 @@ with st.sidebar:
     configured_key = _get_secret("OPENAI_API_KEY")
     entered_key = st.text_input(
         "OpenAI API Key",
-        type="password",
+        type="default",
         value="",
-        placeholder="sk-...",
-        help="यह key केवल इस Streamlit session की memory में रहेगी। इसे GitHub में सेव नहीं किया जाएगा।",
+        placeholder="यहाँ OpenAI API Key paste करें (sk-...)",
+        help="Chrome Password Manager के popup से बचने के लिए यह सामान्य text field है। Key स्क्रीन पर दिखाई देगी; इसे निजी रखें। यह key केवल इस Streamlit session की memory में रहेगी।",
         key="crt_ai_key_input_v2",
     )
     api_key = entered_key.strip() or configured_key
