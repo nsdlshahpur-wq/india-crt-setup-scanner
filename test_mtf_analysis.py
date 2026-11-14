@@ -1,7 +1,6 @@
-"""Unit tests for HTF-to-LTF CRT confirmation logic."""
+"""Offline tests for the current MTF sweep/MSS helper."""
 import pandas as pd
-
-from mtf_analysis import _sweep_mss
+from mtf_analysis import _sweep_and_mss
 
 
 def candles(rows):
@@ -12,42 +11,34 @@ def candles(rows):
     )
 
 
-def test_bullish_sweep_and_mss_is_confirmed():
-    frame = candles([
-        [100, 105, 98, 102],
-        [102, 106, 97, 106],  # completed bar sweeps low and closes above prior high
-        [106, 108, 104, 107],  # newest bar excluded
-    ])
-    result = _sweep_mss(frame)
-    assert result["direction"] == 1
-    assert result["sweep"] == "BULL SWEEP"
-    assert result["mss"] == "BULL MSS"
-
-
-def test_bearish_sweep_and_mss_is_confirmed():
-    frame = candles([
-        [100, 105, 98, 102],
-        [102, 106, 97, 97],  # both extremes swept; bearish close below prior low
-        [97, 99, 95, 96],
-    ])
-    result = _sweep_mss(frame)
-    assert result["direction"] == -1
-    assert result["mss"] == "BEAR MSS"
-
-
-def test_sweep_without_displacement_is_not_mss():
-    frame = candles([
-        [100, 105, 98, 102],
-        [102, 104, 97, 101],  # reclaims prior low but does not break prior high
-        [101, 106, 100, 104],
-    ])
-    result = _sweep_mss(frame)
-    assert result["direction"] == 0
-    assert result["sweep"] == "BULL SWEEP"
-    assert result["mss"] == "NO"
-
-
-def test_insufficient_data_is_unavailable():
-    result = _sweep_mss(pd.DataFrame())
+def test_empty_data_returns_no_data():
+    result = _sweep_and_mss(pd.DataFrame())
     assert result["direction"] == 0
     assert result["sweep"] == "NO DATA"
+    assert result["mss"] == "—"
+
+
+def test_insufficient_completed_history_does_not_create_signal():
+    frame = candles([[100, 105, 98, 102]] * 10)
+    result = _sweep_and_mss(frame)
+    assert result["direction"] == 0
+    assert result["sweep"] == "NO DATA"
+    assert result["mss"] == "—"
+
+
+def test_latest_potentially_forming_candle_is_excluded():
+    rows = [[100, 101, 99, 100] for _ in range(20)]
+    rows[-2] = [100, 102, 98, 100]
+    rows[-1] = [100, 120, 80, 110]
+    result = _sweep_and_mss(candles(rows))
+    assert result["close"] == 100.0
+    assert result["time"] == "19-Jan-2026 00:00"
+    assert result["direction"] == 0
+
+
+def test_no_sweep_is_reported_without_fabricating_direction():
+    frame = candles([[100, 101, 99, 100] for _ in range(24)])
+    result = _sweep_and_mss(frame)
+    assert result["direction"] == 0
+    assert result["sweep"] == "—"
+    assert result["mss"] == "NO"
