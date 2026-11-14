@@ -149,154 +149,168 @@ def _analyze_pair_with_monthly_crt_rules(
     higher: pd.DataFrame,
     lower: pd.DataFrame,
 ) -> dict[str, Any]:
-    """Generalise the proven M1-range -> M2 sweep/reclaim -> M3 LTF CHoCH -> zone retest model.
+    """Separate CRT-timeframe candle marking from lower-timeframe entry planning.
 
-    For each pair, M1/M2/M3 are three consecutive HTF candles. The sweep is
-    detected on the LTF bars inside M2; CHoCH and FVG/IFVG/OB/BOB retest are
-    detected on LTF bars inside the current M3 candle. All confirmations use
-    completed LTF candles only.
+    M1 and M2 are the two most recent COMPLETED candles on the CRT timeframe.
+    M1 defines the CRT range. M2 itself must sweep exactly one M1 boundary and
+    close back inside the full M1 range. Entry analysis begins only after M2
+    has completed, using the configured lower timeframe.
     """
-    # Keep the latest forming HTF candle as M3; only LTF execution bars must be closed.
-    htf = _clean_ohlc(higher)
-    ltf = _closed_bars(lower)
+    htf_all = _clean_ohlc(higher)
+    htf = _closed_bars(htf_all)
+    ltf_all = _clean_ohlc(lower)
+    ltf = _closed_bars(ltf_all)
+
     empty = {
-        "htf_sweep": "—", "ltf_sweep": "—", "htf_choch": "NO",
+        "m1_high": None, "m1_low": None, "m1_time": None,
+        "m2_high": None, "m2_low": None, "m2_close": None, "m2_time": None,
+        "htf_sweep": "—", "sweep_direction": "—",
         "ltf_choch": "NO", "zone": "—", "retest_zone": "—",
         "retest_price": None, "entry": None, "entry_time": None,
+        "stop_loss": None, "target": None, "rr": None,
         "signal": "WAIT", "alignment": "WAIT — INSUFFICIENT CRT HISTORY",
         "entry_status": "WAIT", "htf_close": None, "ltf_close": None,
-        "sweep_time": None, "choch_time": None,
+        "choch_time": None,
     }
-    if len(htf) < 3 or len(ltf) < 30:
+    if len(htf) < 2 or len(htf_all) < 3:
         return empty
 
-    # Use the last three HTF candles: M1 range, M2 sweep/reclaim, M3 active entry period.
-    m1, m2, m3 = htf.iloc[-3], htf.iloc[-2], htf.iloc[-1]
-    m2_start, m3_start = htf.index[-2], htf.index[-1]
-    m2_rows = ltf[(ltf.index >= m2_start) & (ltf.index < m3_start)]
-    m3_rows = ltf[ltf.index >= m3_start]
-    if m2_rows.empty or len(m3_rows) < 8:
-        out = dict(empty)
-        out.update({
-            "alignment": "WAIT — LTF HISTORY NOT COVERING M2/M3",
-            "htf_close": round(float(m3.Close), 2),
-            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
-        })
-        return out
-
+    # M1/M2 are explicitly selected on the CRT timeframe, not inferred from LTF bars.
+    m1, m2 = htf.iloc[-2], htf.iloc[-1]
     m1_high, m1_low = float(m1.High), float(m1.Low)
-    bull_sweeps = m2_rows[
-        (m2_rows.Low < m1_low)
-        & (m2_rows.Close > m1_low)
-        & (m2_rows.Close < m1_high)
-    ]
-    bear_sweeps = m2_rows[
-        (m2_rows.High > m1_high)
-        & (m2_rows.Close < m1_high)
-        & (m2_rows.Close > m1_low)
-    ]
-    if not bull_sweeps.empty and not bear_sweeps.empty:
-        out = dict(empty)
-        out.update({
+    m2_high, m2_low, m2_close = float(m2.High), float(m2.Low), float(m2.Close)
+    # Last row in the original HTF data is the currently forming next candle.
+    next_htf_start = htf_all.index[-1]
+
+    swept_low = m2_low < m1_low
+    swept_high = m2_high > m1_high
+    reclaimed = m1_low < m2_close < m1_high
+    marked = {
+        "m1_high": m1_high, "m1_low": m1_low,
+        "m1_time": htf.index[-2].strftime("%Y-%m-%d %H:%M"),
+        "m2_high": m2_high, "m2_low": m2_low, "m2_close": m2_close,
+        "m2_time": htf.index[-1].strftime("%Y-%m-%d %H:%M"),
+        "htf_close": round(m2_close, 2),
+        "ltf_close": round(float(ltf.Close.iloc[-1]), 2) if not ltf.empty else None,
+    }
+
+    if swept_low and swept_high:
+        return {
+            **empty, **marked,
             "htf_sweep": "DOUBLE SWEEP — REJECTED",
-            "alignment": "WAIT — AMBIGUOUS M2 SWEEP",
-            "htf_close": round(float(m3.Close), 2),
-            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
-        })
-        return out
-    if not bull_sweeps.empty:
-        direction, sweep_row, sweep_label = 1, bull_sweeps.iloc[-1], "BULL SWEEP"
-    elif not bear_sweeps.empty:
-        direction, sweep_row, sweep_label = -1, bear_sweeps.iloc[-1], "BEAR SWEEP"
-    else:
-        out = dict(empty)
-        out.update({
+            "sweep_direction": "AMBIGUOUS",
+            "alignment": "WAIT — M2 SWEPT BOTH M1 SIDES",
+            "entry_status": "REJECTED",
+        }
+    if not reclaimed:
+        return {
+            **empty, **marked,
+            "htf_sweep": "SWEEP WITHOUT FULL-RANGE RECLAIM" if (swept_low or swept_high) else "NO SWEEP",
+            "sweep_direction": "BULLISH" if swept_low else ("BEARISH" if swept_high else "—"),
+            "alignment": "WAIT — M2 MUST CLOSE INSIDE M1 HIGH/LOW",
+        }
+    if not swept_low and not swept_high:
+        return {
+            **empty, **marked,
             "htf_sweep": "NO SWEEP",
             "alignment": "WAIT — M2 DID NOT SWEEP M1 RANGE",
-            "htf_close": round(float(m3.Close), 2),
-            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
-        })
-        return out
-
-    sweep_time = sweep_row.name
-    sweep_matches = ltf.index.get_indexer([sweep_time])
-    sweep_index = int(sweep_matches[0]) if len(sweep_matches) and sweep_matches[0] >= 0 else -1
-    m3_positions = ltf.index.get_indexer_for(m3_rows.index)
-    m3_start_index = int(m3_positions[0]) if len(m3_positions) else len(ltf)
-    last_index = len(ltf) - 1
-    choch = _find_m3_choch(ltf, m3_start_index, sweep_index, last_index, direction, CONFIG)
-    if choch["index"] is None:
-        return {
-            **empty,
-            "htf_sweep": sweep_label,
-            "ltf_sweep": sweep_label,
-            "htf_choch": "NO",
-            "ltf_choch": "NO",
-            "alignment": "WAIT — LTF CHoCH NOT CONFIRMED",
-            "htf_close": round(float(m3.Close), 2),
-            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
-            "sweep_time": sweep_time.strftime("%Y-%m-%d %H:%M"),
         }
+
+    direction = 1 if swept_low else -1
+    sweep_label = "BULL SWEEP" if direction == 1 else "BEAR SWEEP"
+    direction_label = "BULLISH" if direction == 1 else "BEARISH"
+
+    # Entry timeframe starts after the M2 CRT candle has closed.
+    entry_data = ltf[ltf.index >= next_htf_start]
+    if len(entry_data) < max(12, CONFIG.pivot_left + CONFIG.pivot_right + 5):
+        return {
+            **empty, **marked,
+            "htf_sweep": sweep_label, "sweep_direction": direction_label,
+            "alignment": "WAIT — NOT ENOUGH POST-SWEEP ENTRY-TF HISTORY",
+            "entry_status": "WAIT CHoCH",
+        }
+
+    # The HTF M2 candle is the sweep candle; its extreme defines the stop.
+    sweep_stop = m2_low if direction == 1 else m2_high
+    opposite_target = m1_high if direction == 1 else m1_low
+    entry_data = entry_data.reset_index(drop=False).rename(columns={"index": "_time"})
+    entry_data = entry_data.set_index("_time")
+    last_index = len(entry_data) - 1
+
+    # The LTF structure is evaluated independently after the HTF M2 close.
+    choch = _find_m3_choch(entry_data, 0, 0, last_index, direction, CONFIG)
+    base = {
+        **empty, **marked,
+        "htf_sweep": sweep_label,
+        "sweep_direction": direction_label,
+        "stop_loss": round(sweep_stop, 2),
+        "target": round(opposite_target, 2),
+        "htf_close": round(m2_close, 2),
+        "ltf_close": round(float(entry_data.Close.iloc[-1]), 2),
+    }
+    if choch["index"] is None:
+        base.update({
+            "alignment": "WAIT — ENTRY-TF CHoCH NOT CONFIRMED",
+            "entry_status": "WAIT CHoCH",
+        })
+        return base
 
     choch_index = int(choch["index"])
     choch_label = "BULL CHoCH" if direction == 1 else "BEAR CHoCH"
     zones = _collect_entry_zones(
-        ltf, m3_start_index, choch_index, last_index, direction, CONFIG
+        entry_data, 0, choch_index, last_index, direction, CONFIG
     )
-    active_zones = [z for z in zones if _zone_is_active(ltf, z, direction)]
-    candidate = _find_entry_in_zones(ltf, active_zones, direction, CONFIG.entry_valid_days)
+    active_zones = [z for z in zones if _zone_is_active(entry_data, z, direction)]
     zone_names = list(dict.fromkeys(z["type"] for z in active_zones))
-    base = {
-        "htf_sweep": sweep_label,
-        "ltf_sweep": sweep_label,
-        "htf_choch": "NO",
+    base.update({
         "ltf_choch": choch_label,
         "zone": "+".join(zone_names) if zone_names else "—",
-        "retest_zone": "—",
-        "retest_price": None,
-        "entry": None,
-        "entry_time": None,
-        "signal": "WAIT",
-        "alignment": "WAIT — ZONE RETEST / CONFIRMATION",
+        "alignment": "WAIT — ENTRY-TF ZONE RETEST",
         "entry_status": "WAIT RETEST" if active_zones else "WAIT ZONE",
-        "htf_close": round(float(m3.Close), 2),
-        "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
-        "sweep_time": sweep_time.strftime("%Y-%m-%d %H:%M"),
-        "choch_time": ltf.index[choch_index].strftime("%Y-%m-%d %H:%M"),
-    }
+        "choch_time": entry_data.index[choch_index].strftime("%Y-%m-%d %H:%M"),
+    })
+    if not active_zones:
+        return base
+
+    candidate = _find_entry_in_zones(
+        entry_data, active_zones, direction, CONFIG.entry_valid_days
+    )
     if candidate is None:
         return base
 
     entry_index = int(candidate["entry_index"])
     zone = candidate["zone"]
-    entry_price = float(ltf.Close.iloc[entry_index])
-    stop = float(sweep_row.Low) if direction == 1 else float(sweep_row.High)
-    target = m1_high if direction == 1 else m1_low
-    risk = abs(entry_price - stop)
-    reward = abs(target - entry_price)
-    if risk <= 0 or reward <= 0 or reward / risk < 1.5:
-        base["alignment"] = "WAIT — MINIMUM RR 1.5 NOT MET"
-        base["entry_status"] = "RETEST FOUND — RR FILTER FAILED"
-        return base
-
-    # Avoid stale entries: only the latest completed LTF candle may confirm.
-    if entry_index != last_index:
-        base["alignment"] = "WAIT — ENTRY WAS ON AN EARLIER LTF CANDLE"
-        base["entry_status"] = "MISSED — NO FRESH ENTRY"
-        return base
-
+    entry_price = float(entry_data.Close.iloc[entry_index])
+    risk = abs(entry_price - sweep_stop)
+    reward = abs(opposite_target - entry_price)
+    rr = reward / risk if risk > 0 else 0.0
     base.update({
         "zone": "+".join(candidate["zone_types"]),
         "retest_zone": "+".join(candidate["zone_types"]),
         "retest_price": round((float(zone["low"]) + float(zone["high"])) / 2, 2),
+        "rr": round(rr, 2),
+        "entry_time": entry_data.index[entry_index].strftime("%Y-%m-%d %H:%M"),
+    })
+    if risk <= 0 or reward <= 0 or rr < 1.5:
+        base.update({
+            "alignment": "WAIT — MINIMUM RR 1.5 NOT MET",
+            "entry_status": "RETEST FOUND — RR FILTER FAILED",
+        })
+        return base
+    if entry_index != last_index:
+        base.update({
+            "alignment": "WAIT — ENTRY WAS ON AN EARLIER ENTRY-TF CANDLE",
+            "entry_status": "MISSED — NO FRESH ENTRY",
+        })
+        return base
+
+    base.update({
         "entry": round(entry_price, 2),
-        "entry_time": ltf.index[entry_index].strftime("%Y-%m-%d %H:%M"),
         "signal": "BULL ORDER" if direction == 1 else "BEAR ORDER",
-        "alignment": "CRT + LTF CHoCH + ZONE RETEST CONFIRMED",
+        "alignment": "CRT M1/M2 + ENTRY-TF CHoCH + ZONE RETEST CONFIRMED",
         "entry_status": "ORDER",
     })
     return base
-
 
 def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
     ticker = yahoo_ticker(symbol)
@@ -320,15 +334,18 @@ def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
             crt = _analyze_pair_with_monthly_crt_rules(higher, lower)
             rows.append({
                 "HTF → LTF": pair,
-                "HTF Liquidity": crt["htf_sweep"], "HTF MSS": crt["htf_choch"],
-                "LTF Liquidity": crt["ltf_sweep"], "LTF MSS": crt["ltf_choch"],
-                "Entry Zone": crt["zone"], "Retest Zone": crt["retest_zone"],
-                "Retest Price": crt["retest_price"],
+                "CRT M1 High": crt["m1_high"], "CRT M1 Low": crt["m1_low"],
+                "CRT M1 Candle": crt["m1_time"],
+                "CRT M2 High": crt["m2_high"], "CRT M2 Low": crt["m2_low"],
+                "CRT M2 Close": crt["m2_close"], "CRT M2 Candle": crt["m2_time"],
+                "CRT Sweep": crt["htf_sweep"], "Sweep Direction": crt["sweep_direction"],
+                "Entry-TF CHoCH": crt["ltf_choch"], "Entry Zone": crt["zone"],
+                "Retest Zone": crt["retest_zone"], "Retest Price": crt["retest_price"],
                 "Entry Price": crt["entry"], "Entry Time": crt["entry_time"],
+                "Stop Loss": crt["stop_loss"], "Target": crt["target"], "RR": crt["rr"],
                 "Alignment": crt["alignment"], "Entry Status": crt["entry_status"],
-                "Signal": crt["signal"], "HTF Close": crt["htf_close"],
-                "LTF Close": crt["ltf_close"], "HTF Candle": crt["sweep_time"],
-                "LTF Candle": crt["choch_time"],
+                "Signal": crt["signal"], "CRT Close": crt["htf_close"],
+                "Entry-TF Close": crt["ltf_close"], "CHoCH Time": crt["choch_time"],
             })
             if crt["htf_close"] is None or crt["ltf_close"] is None:
                 errors[pair] = "Insufficient timeframe history"
