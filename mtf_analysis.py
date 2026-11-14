@@ -9,7 +9,7 @@ import yfinance as yf
 from data_fetch import yahoo_ticker
 from scanner import (
     ScanConfig, _collect_entry_zones, _find_entry_in_zones,
-    _confirmed_pivots, _zone_is_active,
+    _confirmed_pivots, _zone_is_active, _find_m3_choch,
 )
 
 PAIR_SPECS = [
