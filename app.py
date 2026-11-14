@@ -1292,14 +1292,40 @@ with screener_tab:
                 screener_df[["Symbol", "Name"]].drop_duplicates("Symbol").set_index("Symbol")["Name"].to_dict()
                 if "Name" in screener_df.columns else {}
             )
-            for symbol, symbol_rows in display.groupby("Symbol", sort=False):
+            interval_map = {
+                "Monthly → Daily": "1D",
+                "Weekly → 4H": "240",
+                "Daily → 1H": "60",
+                "4H → 5m": "5",
+                "1H → 5m": "5",
+            }
+            for group_number, (symbol, symbol_rows) in enumerate(display.groupby("Symbol", sort=False)):
                 company_name = name_lookup.get(symbol, "Company / Index")
                 with st.expander(f"{company_name} · {len(symbol_rows)} timeframe pairs", expanded=True):
                     summary_columns = [c for c in compact_columns if c in symbol_rows.columns]
+                    table_key = f"crt_pair_table_{group_number}"
+                    st.caption("जिस Timeframe Pair का chart देखना है, उसकी row पर क्लिक करें।")
                     st.dataframe(
                         symbol_rows[summary_columns].reset_index(drop=True),
                         use_container_width=True, hide_index=True,
+                        on_select="rerun", selection_mode="single-row", key=table_key,
                     )
+                    selected_rows = st.session_state.get(table_key, {}).get("selection", {}).get("rows", [])
+                    if selected_rows:
+                        selected_position = int(selected_rows[0])
+                        if 0 <= selected_position < len(symbol_rows):
+                            selected_pair = str(symbol_rows.iloc[selected_position]["HTF → LTF"])
+                            interval = interval_map.get(selected_pair, "D")
+                            tv_symbol = _tradingview_symbol(symbol)
+                            chart_url = (
+                                "https://www.tradingview.com/chart/?symbol="
+                                + quote(tv_symbol, safe="")
+                                + "&interval=" + interval
+                            )
+                            st.link_button(
+                                f"📈 Open {selected_pair} Chart in TradingView",
+                                chart_url, type="primary",
+                            )
                     if detail_columns:
                         with st.expander("Detailed data (prices, alignment and candles)"):
                             st.dataframe(
