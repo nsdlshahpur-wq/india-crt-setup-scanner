@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from urllib.parse import quote
 import os
 import time
 
@@ -1274,9 +1275,29 @@ with screener_tab:
                 "Retest Price": retest_zone,
                 "Signals": signal_display,
             })
-            # Keep the dashboard to the six columns requested; show each symbol as its own section.
+            # Keep the dashboard to the six columns requested; make each symbol heading open its TradingView chart.
+            def _tradingview_symbol(raw_symbol: str) -> str:
+                raw = str(raw_symbol).strip().upper()
+                known_indices = {
+                    "^NSEI": "NSE:NIFTY",
+                    "^NSEBANK": "NSE:BANKNIFTY",
+                    "^BSESN": "BSE:SENSEX",
+                    "^INDIAVIX": "NSE:INDIAVIX",
+                }
+                if raw in known_indices:
+                    return known_indices[raw]
+                if raw.endswith(".NS"):
+                    return "NSE:" + raw[:-3]
+                if raw.endswith(".BO"):
+                    return "BSE:" + raw[:-3]
+                if raw.startswith("NSE:") or raw.startswith("BSE:"):
+                    return raw
+                return "NSE:" + raw
+
             for symbol, symbol_rows in display.groupby(screener_df["Symbol"].astype(str), sort=False):
-                st.markdown(f"**{symbol}**")
+                tv_symbol = _tradingview_symbol(symbol)
+                tv_url = "https://www.tradingview.com/chart/?symbol=" + quote(tv_symbol, safe="")
+                st.markdown(f"[**{symbol}**]({tv_url})")
                 st.dataframe(symbol_rows.reset_index(drop=True), use_container_width=True, hide_index=True)
             st.download_button(
                 "⬇️ Download All-Timeframe Screener CSV",
