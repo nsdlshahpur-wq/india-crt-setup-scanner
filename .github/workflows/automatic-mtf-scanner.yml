@@ -1,0 +1,58 @@
+name: Automatic All-India MTF CRT Scanner
+
+on:
+  schedule:
+    # Every 5 minutes on weekdays; script enforces 09:15–15:30 IST.
+    - cron: "*/5 3-10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automatic-all-india-mtf-crt
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore signal de-duplication state
+        uses: actions/cache/restore@v4
+        with:
+          path: .auto_mtf_state
+          key: auto-mtf-state-${{ github.run_id }}
+          restore-keys: |
+            auto-mtf-state-
+      - name: Scan rotating batch of all India stocks and mapped indices
+        env:
+          AUTO_MTF_BATCH_SIZE: "20"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python automatic_mtf_scanner.py
+      - name: Save signal de-duplication state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .auto_mtf_state
+          key: auto-mtf-state-${{ github.run_id }}
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automatic-mtf-scan-${{ github.run_number }}
+          path: |
+            automatic_mtf_scan.csv
+            automatic_mtf_errors.csv
+          if-no-files-found: ignore
+          retention-days: 7
