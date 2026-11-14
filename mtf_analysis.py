@@ -156,7 +156,8 @@ def _analyze_pair_with_monthly_crt_rules(
     detected on LTF bars inside the current M3 candle. All confirmations use
     completed LTF candles only.
     """
-    htf = _closed_bars(higher)
+    # Keep the latest forming HTF candle as M3; only LTF execution bars must be closed.
+    htf = _clean_ohlc(higher)
     ltf = _closed_bars(lower)
     empty = {
         "htf_sweep": "—", "ltf_sweep": "—", "htf_choch": "NO",
