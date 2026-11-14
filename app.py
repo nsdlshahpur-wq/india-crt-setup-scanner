@@ -1275,12 +1275,40 @@ with screener_tab:
 
             def _tradingview_symbol(raw_symbol: str) -> str:
                 raw = str(raw_symbol).strip().upper()
+                # Yahoo Finance index tickers are not TradingView tickers.
+                # Map known index aliases explicitly; never prefix NSE: to a caret ticker.
                 known_indices = {
-                    "^NSEI": "NSE:NIFTY", "^NSEBANK": "NSE:BANKNIFTY",
-                    "^BSESN": "BSE:SENSEX", "^INDIAVIX": "NSE:INDIAVIX",
+                    "^NSEI": "NSE:NIFTY",
+                    "^NSEBANK": "NSE:BANKNIFTY",
+                    "^BSESN": "BSE:SENSEX",
+                    "^INDIAVIX": "NSE:INDIAVIX",
+                    "^NSMIDCP": "NSE:NIFTYJR",
+                    "^CNX100": "NSE:CNX100",
+                    "^CNX200": "NSE:CNX200",
+                    "^CRSLDX": "NSE:CNX500",
+                    "^NSEMDCP50": "NSE:NIFTYMIDCAP50",
+                    "^CNXFIN": "NSE:NIFTYFINSRV25_50",
+                    "^CNXIT": "NSE:CNXIT",
+                    "^CNXAUTO": "NSE:CNXAUTO",
+                    "^CNXFMCG": "NSE:CNXFMCG",
+                    "^CNXPHARMA": "NSE:CNXPHARMA",
+                    "^CNXMETAL": "NSE:CNXMETAL",
+                    "^CNXREALTY": "NSE:CNXREALTY",
+                    "^CNXENERGY": "NSE:CNXENERGY",
+                    "^CNXMEDIA": "NSE:CNXMEDIA",
+                    "^CNXPSUBANK": "NSE:CNXPSUBANK",
+                    "^CNXINFRA": "NSE:CNXINFRA",
+                    "^CNXMNC": "NSE:CNXMNC",
+                    "^CNXSC": "NSE:CNXSMALLCAP",
+                    "^CNXCONSUM": "NSE:CNXCONSUM",
+                    "^CNXSERVICE": "NSE:CNXSERVICE",
+                    "^CNXPSE": "NSE:CNXPSE",
+                    "^CNXCMDT": "NSE:CNXCMDT",
                 }
                 if raw in known_indices:
                     return known_indices[raw]
+                if raw.startswith("^"):
+                    return ""
                 if raw.endswith(".NS"):
                     return "NSE:" + raw[:-3]
                 if raw.endswith(".BO"):
@@ -1317,15 +1345,21 @@ with screener_tab:
                             selected_pair = str(symbol_rows.iloc[selected_position]["HTF → LTF"])
                             interval = interval_map.get(selected_pair, "D")
                             tv_symbol = _tradingview_symbol(symbol)
-                            chart_url = (
-                                "https://www.tradingview.com/chart/?symbol="
-                                + quote(tv_symbol, safe="")
-                                + "&interval=" + interval
-                            )
-                            st.link_button(
-                                f"📈 Open {selected_pair} Chart in TradingView",
-                                chart_url, type="primary",
-                            )
+                            if tv_symbol:
+                                chart_url = (
+                                    "https://www.tradingview.com/chart/?symbol="
+                                    + quote(tv_symbol, safe="")
+                                    + "&interval=" + interval
+                                )
+                                st.link_button(
+                                    f"📈 Open {selected_pair} Chart in TradingView",
+                                    chart_url, type="primary",
+                                )
+                            else:
+                                st.warning(
+                                    "इस Index का TradingView ticker mapping उपलब्ध नहीं है। "
+                                    "इसलिए गलत/Invalid chart खोलने के बजाय chart link नहीं बनाया गया।"
+                                )
                     if detail_columns:
                         with st.expander("Detailed data (prices, alignment and candles)"):
                             st.dataframe(
