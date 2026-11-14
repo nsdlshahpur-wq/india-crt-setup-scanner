@@ -145,6 +145,158 @@ def _entry_from_same_zones(frame: pd.DataFrame, structure: dict[str, Any]) -> di
     return result
 
 
+def _analyze_pair_with_monthly_crt_rules(
+    higher: pd.DataFrame,
+    lower: pd.DataFrame,
+) -> dict[str, Any]:
+    """Generalise the proven M1-range -> M2 sweep/reclaim -> M3 LTF CHoCH -> zone retest model.
+
+    For each pair, M1/M2/M3 are three consecutive HTF candles. The sweep is
+    detected on the LTF bars inside M2; CHoCH and FVG/IFVG/OB/BOB retest are
+    detected on LTF bars inside the current M3 candle. All confirmations use
+    completed LTF candles only.
+    """
+    htf = _closed_bars(higher)
+    ltf = _closed_bars(lower)
+    empty = {
+        "htf_sweep": "—", "ltf_sweep": "—", "htf_choch": "NO",
+        "ltf_choch": "NO", "zone": "—", "retest_zone": "—",
+        "retest_price": None, "entry": None, "entry_time": None,
+        "signal": "WAIT", "alignment": "WAIT — INSUFFICIENT CRT HISTORY",
+        "entry_status": "WAIT", "htf_close": None, "ltf_close": None,
+        "sweep_time": None, "choch_time": None,
+    }
+    if len(htf) < 3 or len(ltf) < 30:
+        return empty
+
+    # Use the last three HTF candles: M1 range, M2 sweep/reclaim, M3 active entry period.
+    m1, m2, m3 = htf.iloc[-3], htf.iloc[-2], htf.iloc[-1]
+    m2_start, m3_start = htf.index[-2], htf.index[-1]
+    m2_rows = ltf[(ltf.index >= m2_start) & (ltf.index < m3_start)]
+    m3_rows = ltf[ltf.index >= m3_start]
+    if m2_rows.empty or len(m3_rows) < 8:
+        out = dict(empty)
+        out.update({
+            "alignment": "WAIT — LTF HISTORY NOT COVERING M2/M3",
+            "htf_close": round(float(m3.Close), 2),
+            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
+        })
+        return out
+
+    m1_high, m1_low = float(m1.High), float(m1.Low)
+    bull_sweeps = m2_rows[
+        (m2_rows.Low < m1_low)
+        & (m2_rows.Close > m1_low)
+        & (m2_rows.Close < m1_high)
+    ]
+    bear_sweeps = m2_rows[
+        (m2_rows.High > m1_high)
+        & (m2_rows.Close < m1_high)
+        & (m2_rows.Close > m1_low)
+    ]
+    if not bull_sweeps.empty and not bear_sweeps.empty:
+        out = dict(empty)
+        out.update({
+            "htf_sweep": "DOUBLE SWEEP — REJECTED",
+            "alignment": "WAIT — AMBIGUOUS M2 SWEEP",
+            "htf_close": round(float(m3.Close), 2),
+            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
+        })
+        return out
+    if not bull_sweeps.empty:
+        direction, sweep_row, sweep_label = 1, bull_sweeps.iloc[-1], "BULL SWEEP"
+    elif not bear_sweeps.empty:
+        direction, sweep_row, sweep_label = -1, bear_sweeps.iloc[-1], "BEAR SWEEP"
+    else:
+        out = dict(empty)
+        out.update({
+            "htf_sweep": "NO SWEEP",
+            "alignment": "WAIT — M2 DID NOT SWEEP M1 RANGE",
+            "htf_close": round(float(m3.Close), 2),
+            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
+        })
+        return out
+
+    sweep_time = sweep_row.name
+    sweep_matches = ltf.index.get_indexer([sweep_time])
+    sweep_index = int(sweep_matches[0]) if len(sweep_matches) and sweep_matches[0] >= 0 else -1
+    m3_positions = ltf.index.get_indexer_for(m3_rows.index)
+    m3_start_index = int(m3_positions[0]) if len(m3_positions) else len(ltf)
+    last_index = len(ltf) - 1
+    choch = _find_m3_choch(ltf, m3_start_index, sweep_index, last_index, direction, CONFIG)
+    if choch["index"] is None:
+        return {
+            **empty,
+            "htf_sweep": sweep_label,
+            "ltf_sweep": "—",
+            "htf_choch": "NO",
+            "ltf_choch": "NO",
+            "alignment": "WAIT — LTF CHoCH NOT CONFIRMED",
+            "htf_close": round(float(m3.Close), 2),
+            "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
+            "sweep_time": sweep_time.strftime("%Y-%m-%d %H:%M"),
+        }
+
+    choch_index = int(choch["index"])
+    choch_label = "BULL CHoCH" if direction == 1 else "BEAR CHoCH"
+    zones = _collect_entry_zones(
+        ltf, m3_start_index, choch_index, last_index, direction, CONFIG
+    )
+    active_zones = [z for z in zones if _zone_is_active(ltf, z, direction)]
+    candidate = _find_entry_in_zones(ltf, active_zones, direction, CONFIG.entry_valid_days)
+    zone_names = list(dict.fromkeys(z["type"] for z in active_zones))
+    base = {
+        "htf_sweep": sweep_label,
+        "ltf_sweep": "—",
+        "htf_choch": "NO",
+        "ltf_choch": choch_label,
+        "zone": "+".join(zone_names) if zone_names else "—",
+        "retest_zone": "—",
+        "retest_price": None,
+        "entry": None,
+        "entry_time": None,
+        "signal": "WAIT",
+        "alignment": "WAIT — ZONE RETEST / CONFIRMATION",
+        "entry_status": "WAIT RETEST" if active_zones else "WAIT ZONE",
+        "htf_close": round(float(m3.Close), 2),
+        "ltf_close": round(float(ltf.Close.iloc[-1]), 2),
+        "sweep_time": sweep_time.strftime("%Y-%m-%d %H:%M"),
+        "choch_time": ltf.index[choch_index].strftime("%Y-%m-%d %H:%M"),
+    }
+    if candidate is None:
+        return base
+
+    entry_index = int(candidate["entry_index"])
+    zone = candidate["zone"]
+    entry_price = float(ltf.Close.iloc[entry_index])
+    stop = float(sweep_row.Low) if direction == 1 else float(sweep_row.High)
+    target = m1_high if direction == 1 else m1_low
+    risk = abs(entry_price - stop)
+    reward = abs(target - entry_price)
+    if risk <= 0 or reward <= 0 or reward / risk < 1.5:
+        base["alignment"] = "WAIT — MINIMUM RR 1.5 NOT MET"
+        base["entry_status"] = "RETEST FOUND — RR FILTER FAILED"
+        return base
+
+    # Avoid stale entries: only the latest completed LTF candle may confirm.
+    if entry_index != last_index:
+        base["alignment"] = "WAIT — ENTRY WAS ON AN EARLIER LTF CANDLE"
+        base["entry_status"] = "MISSED — NO FRESH ENTRY"
+        return base
+
+    base.update({
+        "zone": "+".join(candidate["zone_types"]),
+        "retest_zone": "+".join(candidate["zone_types"]),
+        "retest_price": round((float(zone["low"]) + float(zone["high"])) / 2, 2),
+        "entry": round(entry_price, 2),
+        "entry_time": ltf.index[entry_index].strftime("%Y-%m-%d %H:%M"),
+        "signal": "BULL ORDER" if direction == 1 else "BEAR ORDER",
+        "alignment": "CRT + LTF CHoCH + ZONE RETEST CONFIRMED",
+        "entry_status": "ORDER",
+    })
+    return base
+
+
 def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
     ticker = yahoo_ticker(symbol)
     rows: list[dict[str, Any]] = []
@@ -164,31 +316,18 @@ def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
         try:
             higher = get_data(spec["htf_period"], spec["htf_interval"], spec.get("htf_resample"))
             lower = get_data(spec["ltf_period"], spec["ltf_interval"], spec.get("ltf_resample"))
-            hs, ls = _sweep_and_mss(higher), _sweep_and_mss(lower)
-            entry = _entry_from_same_zones(lower, ls)
-            if hs["direction"] == 0:
-                alignment, signal = "WAIT HTF", "WAIT"
-            elif ls["direction"] == 0:
-                alignment, signal = "WAIT LTF MSS", "WAIT"
-            elif hs["direction"] != ls["direction"]:
-                alignment, signal = "LTF OPPOSITE — NO TRADE", "WAIT"
-            elif entry["status"] != "ORDER":
-                alignment, signal = "WAIT LTF RETEST", "WAIT"
-            else:
-                alignment = "HTF + LTF CONFIRMED"
-                signal = "BULL ORDER" if hs["direction"] == 1 else "BEAR ORDER"
-
+            crt = _analyze_pair_with_monthly_crt_rules(higher, lower)
             rows.append({
                 "HTF → LTF": pair,
-                "HTF Liquidity": hs["sweep"], "HTF MSS": hs["mss"],
-                "LTF Liquidity": ls["sweep"], "LTF MSS": ls["mss"],
-                "Entry Zone": entry["zone"],
-                "Retest Zone": entry["zone"] if entry["status"] == "ORDER" else "—",
-                "Retest Price": entry["retest_price"],
-                "Entry Price": entry["entry"], "Entry Time": entry["entry_time"],
-                "Alignment": alignment, "Entry Status": entry["status"], "Signal": signal,
-                "HTF Close": hs["close"], "LTF Close": ls["close"],
-                "HTF Candle": hs["time"], "LTF Candle": ls["time"],
+                "HTF Liquidity": crt["htf_sweep"], "HTF MSS": crt["htf_choch"],
+                "LTF Liquidity": crt["ltf_sweep"], "LTF MSS": crt["ltf_choch"],
+                "Entry Zone": crt["zone"], "Retest Zone": crt["retest_zone"],
+                "Retest Price": crt["retest_price"],
+                "Entry Price": crt["entry"], "Entry Time": crt["entry_time"],
+                "Alignment": crt["alignment"], "Entry Status": crt["entry_status"],
+                "Signal": crt["signal"], "HTF Close": crt["htf_close"],
+                "LTF Close": crt["ltf_close"], "HTF Candle": crt["sweep_time"],
+                "LTF Candle": crt["choch_time"],
             })
             if hs["close"] is None or ls["close"] is None:
                 errors[pair] = "Insufficient timeframe history"
