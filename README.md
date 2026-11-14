@@ -130,3 +130,14 @@ or source control, revoke it and create a replacement. The assistant uses
 - The unused five-provider consensus integration (Groq, Mistral, OpenRouter and Cloudflare alongside Gemini) has been removed from the app to avoid multiple failing API connections, quota issues and unnecessary setup.
 - No component places broker orders. AI text and model scores are research aids, not guaranteed predictions.
 
+
+
+## Experimental Quantum AI research engine
+
+- The single Dashboard AI Command Centre can run the experimental quantum-kernel analysis when asked for “Quantum AI analysis”.
+- It uses a four-qubit NumPy state-vector simulator on a conventional CPU; it does **not** connect to quantum hardware.
+- The quantum kernel classifies Daily OHLC feature snapshots (trend gaps, 5/20-session momentum, RSI and realised volatility) as bullish / bearish / neutral. It also compares a chronological holdout score with a classical RBF-kernel baseline.
+- Strongest / weakest symbols are ranked by observed 20-session return. Existing Daily CRT setup, Entry, SL and target fields are attached from the scanner when available. The five CRT MTF pair records are attached from the MTF screener when available.
+- Important limitation: the quantum circuit itself is currently trained on Daily OHLC only. The five timeframe results are existing CRT screener context, not five separate quantum-trained models. Volume/liquidity is not yet a quantum model feature; no reliable order-book liquidity feed is connected.
+- Kernel class scores are not calibrated probabilities. The output is not an automatic BUY/SELL instruction and does not place trades. Treat the holdout comparison as a small research diagnostic, not proof of predictive edge. Validate with larger walk-forward tests and paper trading before relying on it.
+- To use it, run **Dashboard → Scan market** first, and run **Multi-Symbol Screener** if five-pair CRT context is required. Then ask the central AI: “पूरे मार्केट का Quantum AI analysis करो”.
