@@ -1323,7 +1323,14 @@ with screener_tab:
                 screener_df[["Symbol", "Name"]].drop_duplicates("Symbol").set_index("Symbol")["Name"].to_dict()
                 if "Name" in screener_df.columns else {}
             )
-            interval_map = {
+            crt_interval_map = {
+                "Monthly → Daily": "1M",
+                "Weekly → 4H": "1W",
+                "Daily → 1H": "1D",
+                "4H → 5m": "240",
+                "1H → 5m": "60",
+            }
+            entry_interval_map = {
                 "Monthly → Daily": "1D",
                 "Weekly → 4H": "240",
                 "Daily → 1H": "60",
@@ -1346,17 +1353,28 @@ with screener_tab:
                         selected_position = int(selected_rows[0])
                         if 0 <= selected_position < len(symbol_rows):
                             selected_pair = str(symbol_rows.iloc[selected_position]["HTF → LTF"])
-                            interval = interval_map.get(selected_pair, "D")
+                            crt_interval = crt_interval_map.get(selected_pair, "1D")
+                            entry_interval = entry_interval_map.get(selected_pair, "1D")
                             tv_symbol = _tradingview_symbol(symbol)
                             if tv_symbol:
-                                chart_url = (
+                                crt_url = (
                                     "https://www.tradingview.com/chart/?symbol="
                                     + quote(tv_symbol, safe="")
-                                    + "&interval=" + interval
+                                    + "&interval=" + crt_interval
                                 )
-                                st.link_button(
-                                    f"📈 Open {selected_pair} Chart in TradingView",
-                                    chart_url, type="primary",
+                                entry_url = (
+                                    "https://www.tradingview.com/chart/?symbol="
+                                    + quote(tv_symbol, safe="")
+                                    + "&interval=" + entry_interval
+                                )
+                                chart_col1, chart_col2 = st.columns(2)
+                                chart_col1.link_button(
+                                    f"📊 Open {selected_pair.split(' → ')[0]} CRT Chart",
+                                    crt_url, type="primary", use_container_width=True,
+                                )
+                                chart_col2.link_button(
+                                    f"🎯 Open {selected_pair.split(' → ')[1]} Entry Chart",
+                                    entry_url, use_container_width=True,
                                 )
                             else:
                                 st.warning(
