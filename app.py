@@ -1239,6 +1239,9 @@ with screener_tab:
                 status.caption(f"Current symbol: {symbol}")
 
             combined, all_errors = scan_symbols(requested, progress_callback=_screener_progress)
+            if not combined.empty:
+                symbol_name_map = dict(zip(screener_universe["Symbol"], screener_universe["Name"]))
+                combined.insert(1, "Name", combined["Symbol"].map(symbol_name_map).fillna(combined["Symbol"]))
         except Exception as exc:
             combined = pd.DataFrame()
             all_errors = {"ALL": f"{type(exc).__name__}: {str(exc)[:180]}"}
@@ -1285,8 +1288,13 @@ with screener_tab:
                 return raw if raw.startswith(("NSE:", "BSE:")) else "NSE:" + raw
 
             # Symbol is intentionally hidden from the on-screen results and CSV.
-            for _, symbol_rows in display.groupby("Symbol", sort=False):
-                with st.expander(f"CRT Results · {len(symbol_rows)} timeframe pairs", expanded=True):
+            name_lookup = (
+                screener_df[["Symbol", "Name"]].drop_duplicates("Symbol").set_index("Symbol")["Name"].to_dict()
+                if "Name" in screener_df.columns else {}
+            )
+            for symbol, symbol_rows in display.groupby("Symbol", sort=False):
+                company_name = name_lookup.get(symbol, "Company / Index")
+                with st.expander(f"{company_name} · {len(symbol_rows)} timeframe pairs", expanded=True):
                     summary_columns = [c for c in compact_columns if c in symbol_rows.columns]
                     st.dataframe(
                         symbol_rows[summary_columns].reset_index(drop=True),
