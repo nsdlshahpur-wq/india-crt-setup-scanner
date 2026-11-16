@@ -30,8 +30,8 @@ def test_bullish_cisd_fvg_retest_entry_uses_next_bar_open():
     assert setup is not None
     assert setup["side"] == "LONG"
     assert setup["cisd_line"] == 110
-    assert setup["entry_time"] == idx[6]
-    assert setup["entry"] == 112
+    assert setup["entry_time"] == idx[7]
+    assert setup["entry"] == 113
     assert setup["stop"] == 98
     assert setup["target"] == 154
 
