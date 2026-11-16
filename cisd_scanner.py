@@ -327,7 +327,7 @@ def _cisd_after_sweep(m15: pd.DataFrame, start_time: pd.Timestamp,
 
 def _entry_after_cisd(five: pd.DataFrame, cisd_time: pd.Timestamp,
                       direction: int) -> dict[str, Any] | None:
-    data = five[five.index > cisd_time]
+    data = five[five.index >= (pd.Timestamp(cisd_time) + pd.Timedelta(minutes=15))]
     if len(data) < 5:
         return None
     # FVG forms after the confirmed CISD; then wait for a later rejection retest.
