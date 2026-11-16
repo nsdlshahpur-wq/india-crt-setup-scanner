@@ -113,3 +113,15 @@ def test_crt_rejects_m2_double_sweep():
 
     assert result["htf_sweep"] == "DOUBLE SWEEP — REJECTED"
     assert result["entry_status"] == "REJECTED"
+
+
+def test_pair_specs_cover_requested_crt_and_entry_timeframes():
+    from mtf_analysis import PAIR_SPECS
+
+    assert {(item["HTF"], item["LTF"]) for item in PAIR_SPECS} == {
+        ("1H", "15M"), ("1H", "5M"),
+        ("4H", "15M"), ("4H", "5M"),
+        ("Daily", "15M"), ("Daily", "5M"),
+        ("Weekly", "15M"), ("Weekly", "5M"),
+    }
+    assert len(PAIR_SPECS) == 8
