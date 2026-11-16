@@ -14,7 +14,7 @@ st.caption("CRT MTF ALIGNMENT: 1H→5M · 4H→15M · Daily→30M · Weekly→1H
 st.warning(
     "पुराना केवल Previous-Day Liquidity Sweep → CISD → FVG मॉडल हटा दिया गया है। "
     "अब हर CRT की अपनी Entry Timeframe है: 1H→5M, 4H→15M, Daily→30M, Weekly→1H। "
-    "CISD उसी mapped timeframe पर confirm होगा। इसके बाद FVG, IFVG, OB या Advanced OB में से किसी एक valid zone का retest और rejection entry trigger होगा। "
+    "CISD उसी mapped timeframe पर confirm होगा। इसके बाद FVG, IFVG, OB या Advanced OB में से किसी एक valid zone का retest touch entry trigger होगा। "
     "Scanner केवल research/backtest करता है; broker order place नहीं करता।"
 )
 
@@ -29,7 +29,7 @@ with st.sidebar:
     force_refresh = st.checkbox("Force refresh historical data", value=False)
 
 st.markdown(
-    "**Entry sequence:** CRT M1/M2 sweep-and-reclaim; then mapped timeframe CISD body-close; then wait for retest/rejection in ANY one of FVG, IFVG, OB or Advanced OB; entry at next candle open on that mapped timeframe. "
+    "**Entry sequence:** CRT M1/M2 sweep-and-reclaim; then mapped timeframe CISD body-close; then wait for retest/touch of ANY one of FVG, IFVG, OB or Advanced OB; entry at next candle open on that mapped timeframe. "
     "Mapping: 1H CRT→5M, 4H CRT→15M, Daily CRT→30M, Weekly CRT→1H. SL is beyond CRT M2 sweep extreme plus buffer. "
     "Both 2R and 3R levels are shown; selected R controls the backtest exit."
 )
