@@ -47,7 +47,7 @@ if quote:
     st.caption(f'Provider: {quote["provider"]} · Segment: {quote["exchange_segment"]} · Last trade UTC: {quote["last_trade_time"]} · Received UTC: {quote["received_at"]}')
 st.warning("Dhan LTP connection test ko abhi CRT candle source se alag rakha gaya hai. CRT/CISD signals tab tak Yahoo historical candles par hi calculate honge jab tak Dhan historical OHLC + live candle aggregation integration aur validation complete nahi hoti.")
 \nsymbol = st.text_input("Yahoo Finance symbol", value="^NSEI", help="उदाहरण: ^NSEI, RELIANCE.NS, BTC-USD")
-st.caption("Data source: Yahoo Finance. Intraday history सीमित और delayed/incomplete हो सकती है. 15M/5M entry history फिलहाल पिछले लगभग 60 दिनों तक सीमित है.")
+st.caption("Data source: Yahoo Finance (yfinance). Intraday candles delayed/incomplete हो सकती हैं; Yahoo की उपलब्धता के अनुसार 5M/15M history सीमित रहती है. यह broker-grade exchange feed नहीं है.")
 if st.button("🔍 Scan all CRT / entry timeframe combinations", type="primary", disabled=not symbol.strip()):
     try:
         with st.spinner("1H, 4H, Daily, Weekly CRT और 15M/5M entry data analyse हो रहा है..."):
