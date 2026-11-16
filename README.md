@@ -143,6 +143,15 @@ or source control, revoke it and create a replacement. The assistant uses
 - To use it, run **Dashboard → Scan market** first, and run **Multi-Symbol Screener** if five-pair CRT context is required. Then ask the central AI: “पूरे मार्केट का Quantum AI analysis करो”.
 
 
+## Separate XAUUSD Gold CISD Scanner
+
+- New page: `pages/6_XAUUSD_Gold_CISD_Scanner.py`; engine: `gold_cisd_scanner.py`.
+- Built by combining the first uploaded CISD teaching video with the second uploaded XAUUSD chart example, where bullish CISD, FVG and a long-position risk box are visible.
+- Rule sequence: previous-session high/low liquidity sweep and reclaim → CISD body close → three-candle FVG → FVG retest/rejection → next-bar entry. Stop is beyond the sweep extreme; opposite-side prior liquidity must allow the selected RR (default 1:3).
+- The video does not fully specify the broker feed, session boundary, timeframe text or every parameter. The scanner therefore accepts user-uploaded XAUUSD OHLC CSV data rather than claiming an unverified live/history feed. Calendar-date session grouping is an explicit assumption.
+- Results are Gold price units, not a broker-specific USD/INR or lot-sized P&L. Spread, swap, commission, contract size and execution can differ by broker. No orders are placed.
+- This page is separate from the NIFTY CISD page and the original CRT scanner.
+
 ## Separate CISD Liquidity Sweep Scanner
 
 - New page: `pages/5_CISD_Liquidity_Scanner.py`.
