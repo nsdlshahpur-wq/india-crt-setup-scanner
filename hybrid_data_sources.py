@@ -24,7 +24,9 @@ class FeedSpec:
 FEED_REGISTRY = {
     "BTC": FeedSpec("Crypto", "Delta Exchange India public WebSocket", "Delta public REST history", "Perpetual futures", "stream"),
     "ETH": FeedSpec("Crypto", "Delta Exchange India public WebSocket", "Delta public REST history", "Perpetual futures", "stream"),
-    "SOL": FeedSpec("Crypto", "Delta Exchange India public WebSocket", "Delta public REST history", "Perpetual futures", "stream"),\n    "MCX_GOLD": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Gold futures", "stream", True),\n    "MCX_SILVER": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Silver futures", "stream", True),
+    "SOL": FeedSpec("Crypto", "Delta Exchange India public WebSocket", "Delta public REST history", "Perpetual futures", "stream"),
+    "MCX_GOLD": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Gold futures", "stream", True),
+    "MCX_SILVER": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Silver futures", "stream", True),
     "GOLD": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance GC=F reference", "COMEX Gold futures", "provider-dependent", True),
     "SILVER": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance SI=F reference", "COMEX Silver futures", "provider-dependent", True),
     "FX_FUTURES": FeedSpec("FX", "Databento / IBKR licensed CME feed", "Yahoo Finance CME futures symbols", "CME currency futures", "provider-dependent", True),
