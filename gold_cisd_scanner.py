@@ -1,59 +1,49 @@
-"""Multi-asset CISD scanner using public market-data APIs.
+"""Multi-asset CISD scanner using futures market data only.
 
-Crypto: CCXT public exchange APIs (Binance, then KuCoin fallback).
-Forex/metals/US30: Deriv public WebSocket market-data API, resolved dynamically
-from active_symbols. No account login or trading permissions are used.
-
-Provider symbols can differ from a broker's CFD/spot contract. Deriv only
-returns symbols active on its platform. No stock/equity instruments are listed.
+Metals, US index and FX: Yahoo Finance continuous futures symbols (=F).
+Crypto: Binance USD-M perpetual futures through CCXT (not spot, not options).
+No Deriv options endpoints are used. No orders are placed.
 """
 from __future__ import annotations
 
-import json
-import re
 from io import BytesIO
 from typing import Any
 
 import ccxt
 import pandas as pd
-import websocket
+import yfinance as yf
 
 from cisd_scanner import CISDConfig, backtest_cisd, find_day_setup
 
 
 INSTRUMENTS = {
-    "Metals": {
-        "Gold (XAUUSD)": {"provider": "Deriv", "aliases": ["XAUUSD", "GOLD", "GOLD/USD"], "unit": "USD per troy ounce"},
-        "Silver (XAGUSD)": {"provider": "Deriv", "aliases": ["XAGUSD", "SILVER", "SILVER/USD"], "unit": "USD per troy ounce"},
+    "Metals Futures": {
+        "Gold Futures (GC=F)": {"provider": "Yahoo Finance Futures", "ticker": "GC=F", "unit": "USD per troy ounce"},
+        "Silver Futures (SI=F)": {"provider": "Yahoo Finance Futures", "ticker": "SI=F", "unit": "USD per troy ounce"},
     },
-    "Crypto": {
-        "Bitcoin (BTCUSD)": {"provider": "CCXT", "symbol": "BTC/USDT", "unit": "USDT"},
-        "Ethereum (ETHUSD)": {"provider": "CCXT", "symbol": "ETH/USDT", "unit": "USDT"},
-        "Solana (SOLUSD)": {"provider": "CCXT", "symbol": "SOL/USDT", "unit": "USDT"},
-        "BNB (BNBUSD)": {"provider": "CCXT", "symbol": "BNB/USDT", "unit": "USDT"},
-        "XRP (XRPUSD)": {"provider": "CCXT", "symbol": "XRP/USDT", "unit": "USDT"},
-        "Cardano (ADAUSD)": {"provider": "CCXT", "symbol": "ADA/USDT", "unit": "USDT"},
-        "Dogecoin (DOGEUSD)": {"provider": "CCXT", "symbol": "DOGE/USDT", "unit": "USDT"},
-        "Litecoin (LTCUSD)": {"provider": "CCXT", "symbol": "LTC/USDT", "unit": "USDT"},
+    "Crypto Perpetual Futures": {
+        "Bitcoin USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "BTC/USDT:USDT", "unit": "USDT"},
+        "Ethereum USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "ETH/USDT:USDT", "unit": "USDT"},
+        "Solana USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "SOL/USDT:USDT", "unit": "USDT"},
+        "BNB USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "BNB/USDT:USDT", "unit": "USDT"},
+        "XRP USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "XRP/USDT:USDT", "unit": "USDT"},
+        "ADA USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "ADA/USDT:USDT", "unit": "USDT"},
+        "DOGE USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "DOGE/USDT:USDT", "unit": "USDT"},
+        "LTC USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "LTC/USDT:USDT", "unit": "USDT"},
     },
-    "Forex": {
-        "EURUSD": {"provider": "Deriv", "aliases": ["EURUSD"], "unit": "USD per EUR"},
-        "GBPUSD": {"provider": "Deriv", "aliases": ["GBPUSD"], "unit": "USD per GBP"},
-        "USDJPY": {"provider": "Deriv", "aliases": ["USDJPY"], "unit": "JPY per USD"},
-        "AUDUSD": {"provider": "Deriv", "aliases": ["AUDUSD"], "unit": "USD per AUD"},
-        "USDCAD": {"provider": "Deriv", "aliases": ["USDCAD"], "unit": "CAD per USD"},
-        "USDCHF": {"provider": "Deriv", "aliases": ["USDCHF"], "unit": "CHF per USD"},
-        "NZDUSD": {"provider": "Deriv", "aliases": ["NZDUSD"], "unit": "USD per NZD"},
-        "EURJPY": {"provider": "Deriv", "aliases": ["EURJPY"], "unit": "JPY per EUR"},
-        "GBPJPY": {"provider": "Deriv", "aliases": ["GBPJPY"], "unit": "JPY per GBP"},
-        "EURGBP": {"provider": "Deriv", "aliases": ["EURGBP"], "unit": "GBP per EUR"},
+    "FX Futures": {
+        "Euro FX Futures (6E=F)": {"provider": "Yahoo Finance Futures", "ticker": "6E=F", "unit": "USD per EUR"},
+        "British Pound Futures (6B=F)": {"provider": "Yahoo Finance Futures", "ticker": "6B=F", "unit": "USD per GBP"},
+        "Japanese Yen Futures (6J=F)": {"provider": "Yahoo Finance Futures", "ticker": "6J=F", "unit": "USD per JPY"},
+        "Australian Dollar Futures (6A=F)": {"provider": "Yahoo Finance Futures", "ticker": "6A=F", "unit": "USD per AUD"},
+        "Canadian Dollar Futures (6C=F)": {"provider": "Yahoo Finance Futures", "ticker": "6C=F", "unit": "USD per CAD"},
+        "Swiss Franc Futures (6S=F)": {"provider": "Yahoo Finance Futures", "ticker": "6S=F", "unit": "USD per CHF"},
+        "New Zealand Dollar Futures (6N=F)": {"provider": "Yahoo Finance Futures", "ticker": "6N=F", "unit": "USD per NZD"},
     },
-    "Indices / Futures": {
-        "US30": {"provider": "Deriv", "aliases": ["US30", "WALL STREET 30", "US WALL STREET", "DOW JONES"], "unit": "index points"},
+    "Index Futures": {
+        "Dow Jones E-mini Futures / US30 proxy (YM=F)": {"provider": "Yahoo Finance Futures", "ticker": "YM=F", "unit": "index points"},
     },
 }
-
-DERIV_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
 
 
 def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
@@ -68,6 +58,8 @@ def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=needed)
     data = data[needed].copy()
     data.index = pd.to_datetime(data.index, utc=True)
+    for col in needed:
+        data[col] = pd.to_numeric(data[col], errors="coerce")
     data = data.dropna(subset=needed).sort_index()
     data = data[~data.index.duplicated(keep="last")]
     valid = (
@@ -77,138 +69,96 @@ def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     return data.loc[valid]
 
 
-def _deriv_request(ws, payload: dict, req_id: int) -> dict:
-    payload["req_id"] = req_id
-    ws.send(json.dumps(payload))
-    for _ in range(12):
-        raw = ws.recv()
-        message = json.loads(raw)
-        if message.get("req_id") == req_id:
-            if message.get("error"):
-                raise RuntimeError(message["error"].get("message", "Deriv API error"))
-            return message
-    raise TimeoutError(f"Deriv response timeout for request {req_id}")
-
-
-def _resolve_deriv_symbol(symbols: list[dict], aliases: list[str]) -> dict:
-    terms = [re.sub(r"[^A-Z0-9]", "", a.upper()) for a in aliases]
-    # Prefer a direct symbol/display-name match; exclude OTC synthetic lookalikes
-    # when a conventional FX/metals symbol is requested.
-    for item in symbols:
-        code = re.sub(r"[^A-Z0-9]", "", str(item.get("symbol", "")).upper())
-        name = re.sub(r"[^A-Z0-9]", "", str(item.get("display_name", "")).upper())
-        for term in terms:
-            if term and (code == term or name == term or term in code or term in name):
-                return item
-    raise RuntimeError(
-        "Deriv ke active market list mein is pair ka exact/recognisable symbol nahi mila. "
-        "Kisi doosre instrument ka price use nahi kiya gaya."
-    )
-
-
-def _fetch_deriv_data(spec: dict) -> tuple[pd.DataFrame, dict]:
-    ws = websocket.create_connection(DERIV_WS_URL, timeout=15)
-    try:
-        active = _deriv_request(ws, {"active_symbols": "brief"}, 1)
-        available = active.get("active_symbols", [])
-        market = _resolve_deriv_symbol(available, spec["aliases"])
-        code = market["symbol"]
-        history = _deriv_request(
-            ws,
-            {
-                "ticks_history": code,
-                "count": 500,
-                "end": "latest",
-                "style": "candles",
-                "granularity": 300,
-            },
-            2,
+def _fetch_yahoo_future(spec: dict) -> tuple[pd.DataFrame, dict]:
+    ticker = spec["ticker"]
+    instrument = yf.Ticker(ticker)
+    # Yahoo intraday history availability depends on the futures contract/feed.
+    raw = instrument.history(period="5d", interval="5m", auto_adjust=False, prepost=True)
+    frame = _clean_ohlc(raw)
+    if frame.empty:
+        raise RuntimeError(
+            f"Yahoo Finance se {ticker} ka 5-minute futures data nahi mila. "
+            "Feed/market-hours limitation ho sakti hai; spot ya option data fallback nahi hoga."
         )
-        candles = history.get("candles", [])
+    try:
+        fast = instrument.fast_info
+        last = fast.get("last_price")
+    except Exception:
+        last = None
+    # Quote snapshot must belong to the same futures ticker. If unavailable,
+    # show latest returned 5m candle close and label it accordingly.
+    if last is not None and pd.notna(last):
+        price = float(last)
+        quote_type = "Yahoo latest futures quote"
+        stamp = pd.Timestamp.now(tz="UTC")
+    else:
+        price = float(frame["Close"].iloc[-1])
+        quote_type = "latest available 5-minute futures candle close (not a live tick)"
+        stamp = frame.index[-1]
+    report = {
+        "provider": "Yahoo Finance continuous futures feed",
+        "ticker": ticker,
+        "display_name": ticker,
+        "latest_price": price,
+        "latest_timestamp": str(stamp),
+        "quote_interval": quote_type,
+        "history_rows": int(len(frame)),
+        "history_start": str(frame.index.min()),
+        "history_end": str(frame.index.max()),
+        "history_interval": "5-minute",
+        "unit": spec["unit"],
+        "note": "Continuous futures symbol; Yahoo quotes may be delayed and are not guaranteed real-time. Futures contract roll can affect the continuous series.",
+    }
+    return frame, report
+
+
+def _fetch_crypto_future(spec: dict) -> tuple[pd.DataFrame, dict]:
+    symbol = spec["symbol"]
+    exchange = ccxt.binanceusdm({"enableRateLimit": True, "timeout": 20000})
+    try:
+        markets = exchange.load_markets()
+        market = markets.get(symbol)
+        if not market or not (market.get("swap") or market.get("future")):
+            raise RuntimeError(f"{symbol} Binance USD-M futures market mein listed nahi mila.")
+        candles = exchange.fetch_ohlcv(symbol, timeframe="5m", limit=500)
+        ticker = exchange.fetch_ticker(symbol)
         if not candles:
-            raise RuntimeError(f"Deriv ne {code} ke 5-minute historical candles nahi diye.")
-        frame = pd.DataFrame(candles)
-        frame["Timestamp"] = pd.to_datetime(frame["epoch"], unit="s", utc=True)
-        frame = frame.rename(columns={"open": "Open", "high": "High", "low": "Low", "close": "Close"})
+            raise RuntimeError(f"{symbol} ka futures 5-minute OHLCV data nahi mila.")
+        frame = pd.DataFrame(candles, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"])
+        frame["Timestamp"] = pd.to_datetime(frame["timestamp"], unit="ms", utc=True)
         frame = frame.set_index("Timestamp")[["Open", "High", "Low", "Close"]]
         frame = _clean_ohlc(frame)
-        tick = _deriv_request(ws, {"ticks": code, "subscribe": 1}, 3)
-        tick_data = tick.get("tick", {})
-        price = float(tick_data.get("quote", frame["Close"].iloc[-1]))
-        tick_epoch = tick_data.get("epoch")
-        stamp = pd.to_datetime(tick_epoch, unit="s", utc=True) if tick_epoch else frame.index[-1]
         report = {
-            "provider": "Deriv public WebSocket",
-            "ticker": code,
-            "display_name": market.get("display_name", code),
-            "latest_price": price,
-            "latest_timestamp": str(stamp),
-            "quote_interval": "live tick snapshot",
+            "provider": "Binance USD-M Futures via CCXT",
+            "ticker": symbol,
+            "display_name": symbol,
+            "latest_price": float(ticker["last"]),
+            "latest_timestamp": str(pd.to_datetime(ticker.get("timestamp"), unit="ms", utc=True)) if ticker.get("timestamp") else str(frame.index[-1]),
+            "quote_interval": "latest Binance USD-M futures ticker",
             "history_rows": int(len(frame)),
             "history_start": str(frame.index.min()),
             "history_end": str(frame.index.max()),
             "history_interval": "5-minute",
             "unit": spec["unit"],
-            "note": "Deriv public-platform quote; may differ from your broker's XAUUSD/FX/US30 CFD price and execution.",
+            "note": "Binance USDT-margined perpetual futures market data, not spot and not options. Exchange price may differ from other venues.",
         }
         return frame, report
     finally:
-        ws.close()
-
-
-def _fetch_crypto_data(spec: dict) -> tuple[pd.DataFrame, dict]:
-    symbol = spec["symbol"]
-    failures = []
-    for exchange_class in (ccxt.binance, ccxt.kucoin):
-        exchange = exchange_class({"enableRateLimit": True, "timeout": 15000})
         try:
-            markets = exchange.load_markets()
-            if symbol not in markets:
-                failures.append(f"{exchange.id}: {symbol} not listed")
-                continue
-            candles = exchange.fetch_ohlcv(symbol, timeframe="5m", limit=500)
-            ticker = exchange.fetch_ticker(symbol)
-            if not candles:
-                failures.append(f"{exchange.id}: no 5m candles")
-                continue
-            frame = pd.DataFrame(candles, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"])
-            frame["Timestamp"] = pd.to_datetime(frame["timestamp"], unit="ms", utc=True)
-            frame = frame.set_index("Timestamp")[["Open", "High", "Low", "Close"]]
-            frame = _clean_ohlc(frame)
-            report = {
-                "provider": f"{exchange.id.title()} public market API via CCXT",
-                "ticker": symbol,
-                "display_name": symbol,
-                "latest_price": float(ticker["last"]),
-                "latest_timestamp": str(pd.to_datetime(ticker.get("timestamp"), unit="ms", utc=True)) if ticker.get("timestamp") else str(frame.index[-1]),
-                "quote_interval": "latest exchange ticker",
-                "history_rows": int(len(frame)),
-                "history_start": str(frame.index.min()),
-                "history_end": str(frame.index.max()),
-                "history_interval": "5-minute",
-                "unit": spec["unit"],
-                "note": "Crypto quote is from the named exchange. Exchange prices can differ slightly across venues.",
-            }
-            return frame, report
-        except Exception as exc:
-            failures.append(f"{exchange.id}: {type(exc).__name__}: {str(exc)[:120]}")
-        finally:
-            try:
-                exchange.close()
-            except Exception:
-                pass
-    raise RuntimeError("CCXT crypto data providers unavailable. " + " | ".join(failures))
+            exchange.close()
+        except Exception:
+            pass
 
 
 def fetch_market_data(category: str, instrument: str) -> tuple[pd.DataFrame, dict]:
-    """Fetch selected pair from live public data providers, never Yahoo fallback."""
+    """Fetch only futures/derivatives markets; never fall back to spot or options."""
     try:
         spec = INSTRUMENTS[category][instrument]
     except KeyError as exc:
-        raise ValueError("Selected market/pair list mein nahi hai.") from exc
-    if spec["provider"] == "CCXT":
-        return _fetch_crypto_data(spec)
-    return _fetch_deriv_data(spec)
+        raise ValueError("Selected futures market/pair list mein nahi hai.") from exc
+    if category == "Crypto Perpetual Futures":
+        return _fetch_crypto_future(spec)
+    return _fetch_yahoo_future(spec)
 
 
 ALIASES = {
