@@ -146,12 +146,13 @@ or source control, revoke it and create a replacement. The assistant uses
 ## Multi-Asset CISD + FVG Scanner
 
 - Page: `pages/6_XAUUSD_Gold_CISD_Scanner.py`; engine: `gold_cisd_scanner.py`.
-- Yahoo Finance instrument selector includes Metals (XAUUSD, XAGUSD), Crypto (BTCUSD, ETHUSD, SOLUSD, BNBUSD, XRPUSD, ADAUSD, DOGEUSD, LTCUSD), Forex (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURJPY, GBPJPY, EURGBP), and US30 via the `YM=F` E-mini Dow futures proxy.
-- No stocks/equities are included in this scanner.
-- Yahoo tickers are provider symbols, not necessarily the exact CFD/spot contract used by a broker. US30 is a futures proxy, not a broker US30 CFD. Yahoo intraday feeds may be delayed, limited, incomplete, or unavailable.
-- Fetches latest available 1-minute quote (falls back to 5-minute) and up to 60 days of 5-minute history when Yahoo supports the selected symbol.
-- Rule sequence: previous-session high/low sweep and reclaim → CISD body close → three-candle FVG → FVG retest/rejection → next-bar entry. Stop is beyond the sweep extreme; default RR 1:3.
-- Backtest results are in instrument price units, not account-currency or broker lot-based P&L. Spread, commission, swap, contract size and execution differ by broker. No orders are placed.
+- Crypto pairs use CCXT public exchange APIs: Binance first, KuCoin fallback. No trading API keys or account permissions are used.
+- Metals (XAUUSD, XAGUSD), Forex pairs, and US30 are resolved from Deriv's public `active_symbols` WebSocket response; the scanner requests 5-minute candles and a latest tick snapshot. If Deriv does not list a requested symbol or data is unavailable, the scanner reports an error rather than silently substituting another market.
+- US30 availability depends on Deriv's active symbol list and may be represented by a provider-specific Wall Street/Dow symbol, not a broker CFD.
+- No stocks/equities are included.
+- Yahoo Finance is no longer the primary data provider for this scanner.
+- Provider prices can differ from a broker's quote due to venue, spread, contract specification and execution. Public market data only; no orders are placed.
+- Historical CISD results are expressed in instrument price units, not account-currency or broker lot-sized P&L.
 
 
 ## Separate CISD Liquidity Sweep Scanner
