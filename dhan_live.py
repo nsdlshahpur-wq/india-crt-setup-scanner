@@ -34,28 +34,28 @@ def dhan_credentials() -> tuple[str, str]:
 
 
 def parse_dhan_ticker_packet(packet: bytes) -> dict[str, Any] | None:
-    """Parse Dhan binary Ticker (response code 2) packet."""
-    if not isinstance(packet, (bytes, bytearray)) or len(packet) < 17:
+    """Parse Dhan's documented Ticker packet using official SDK struct layout.
+
+    Layout: <BHBIfI = response_code, packet_length, exchange_segment,
+    security_id, LTP(float), last_trade_time(epoch seconds).
+    """
+    if not isinstance(packet, (bytes, bytearray)) or len(packet) < struct.calcsize("<BHBIfI"):
         return None
-    response_code = packet[0]
-    if response_code != 2:
-        return None
-    segment = packet[4]
-    security_id = struct.unpack_from("<I", packet, 5)[0]
-    ltp = struct.unpack_from("<f", packet, 9)[0]
-    ltt = struct.unpack_from("<I", packet, 13)[0]
-    if ltp <= 0:
+    response_code, packet_length, segment, security_id, ltp, ltt = struct.unpack(
+        "<BHBIfI", packet[:struct.calcsize("<BHBIfI")]
+    )
+    if response_code != 2 or ltp <= 0:
         return None
     return {
-        "exchange_segment_code": segment,
+        "exchange_segment_code": int(segment),
         "security_id": str(security_id),
         "ltp": float(ltp),
         "last_trade_time": datetime.fromtimestamp(ltt, tz=timezone.utc).isoformat(),
         "received_at": datetime.now(timezone.utc).isoformat(),
         "provider": "DhanHQ v2 WebSocket",
+        "packet_length": int(packet_length),
         "status": "LIVE",
     }
-
 
 def fetch_dhan_live_ticker(exchange_segment: str, security_id: str, timeout: int = 12) -> dict[str, Any]:
     """Connect, subscribe to one instrument, and return its first live ticker packet.
