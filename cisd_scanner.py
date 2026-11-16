@@ -286,7 +286,11 @@ def _resample_crt_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
             bars = session.resample(rule, origin="start_day", offset="15min",
                                     label="left", closed="left").agg(
                 {"Open": "first", "High": "max", "Low": "min", "Close": "last"})
-            parts.append(bars.dropna())
+            bars = bars.dropna()
+            # Exclude a final partial intraday candle from CRT decisions.
+            last_complete = session.index.max() + pd.Timedelta(minutes=5)
+            bars = bars[[ts + pd.Timedelta(rule) <= last_complete for ts in bars.index]]
+            parts.append(bars)
         return pd.concat(parts).sort_index() if parts else pd.DataFrame()
     if rule == "1D":
         return frame.groupby(frame.index.date).agg(
@@ -355,6 +359,9 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
     m15 = five.resample("15min", origin="start_day", offset="15min",
                         label="left", closed="left").agg(
         {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+    if not m15.empty:
+        last_complete = five.index.max() + pd.Timedelta(minutes=5)
+        m15 = m15[[ts + pd.Timedelta(minutes=15) <= last_complete for ts in m15.index]]
     rows = []
     for model in CRT_MODELS:
         crt = _resample_crt_bars(five, model["rule"])
