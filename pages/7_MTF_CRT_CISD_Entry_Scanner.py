@@ -17,36 +17,7 @@ st.info(
 )
 
 
-st.divider()
-st.subheader("DhanHQ Live Market Feed — Connection Test")
-st.caption("यह केवल read-only live LTP test है। सही Futures contract का Dhan Security ID चुनें; अनुमानित ID या spot instrument न डालें.")
-dhan_col1, dhan_col2, dhan_col3 = st.columns([1, 1, 1])
-with dhan_col1:
-    dhan_segment = st.selectbox("Dhan Exchange Segment", ["MCX_COMM", "NSE_FNO", "NSE_EQ"], index=0)
-with dhan_col2:
-    dhan_security_id = st.text_input("Futures Security ID", placeholder="Dhan instrument master se numeric ID")
-with dhan_col3:
-    st.write("")
-    st.write("")
-    dhan_test = st.button("Test Dhan Live Feed", type="secondary", disabled=not dhan_security_id.strip())
-if dhan_test:
-    try:
-        with st.spinner("Dhan WebSocket se live ticker ka intezar..."):
-            quote = fetch_dhan_live_ticker(dhan_segment, dhan_security_id.strip())
-        st.session_state["dhan_live_quote"] = quote
-        st.success("Dhan se matching live ticker packet receive hua.")
-    except Exception as exc:
-        st.session_state["dhan_live_error"] = f"{type(exc).__name__}: {exc}"
-        st.error(st.session_state["dhan_live_error"])
-quote = st.session_state.get("dhan_live_quote")
-if quote:
-    q1, q2, q3 = st.columns(3)
-    q1.metric("Dhan Live LTP", f'{quote["ltp"]:,.2f}')
-    q2.metric("Security ID", quote["security_id"])
-    q3.metric("Feed Status", quote["status"])
-    st.caption(f'Provider: {quote["provider"]} · Segment: {quote["exchange_segment"]} · Last trade UTC: {quote["last_trade_time"]} · Received UTC: {quote["received_at"]}')
-st.warning("Dhan LTP connection test ko abhi CRT candle source se alag rakha gaya hai. CRT/CISD signals tab tak Yahoo historical candles par hi calculate honge jab tak Dhan historical OHLC + live candle aggregation integration aur validation complete nahi hoti.")
-\nsymbol = st.text_input("Yahoo Finance symbol", value="^NSEI", help="उदाहरण: ^NSEI, RELIANCE.NS, BTC-USD")
+symbol = st.text_input("Yahoo Finance symbol", value="^NSEI", help="उदाहरण: ^NSEI, RELIANCE.NS, BTC-USD")
 st.caption("Data source: Yahoo Finance (yfinance). Intraday candles delayed/incomplete हो सकती हैं; Yahoo की उपलब्धता के अनुसार 5M/15M history सीमित रहती है. यह broker-grade exchange feed नहीं है.")
 if st.button("🔍 Scan all CRT / entry timeframe combinations", type="primary", disabled=not symbol.strip()):
     try:
