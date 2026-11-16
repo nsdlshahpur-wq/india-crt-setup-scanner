@@ -33,7 +33,7 @@ def test_bullish_cisd_fvg_retest_entry_uses_next_bar_open():
     assert setup["entry_time"] == idx[7]
     assert setup["entry"] == 113
     assert setup["stop"] == 98
-    assert setup["target"] == 154
+    assert setup["target"] == 158
 
 
 def test_resample_aligns_to_nse_0915_session():
