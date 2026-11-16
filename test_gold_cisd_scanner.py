@@ -10,9 +10,9 @@ def test_only_futures_and_perpetual_crypto_derivatives_are_listed():
     }
     assert INSTRUMENTS["Metals Futures"]["Gold Futures (GC=F)"]["ticker"] == "GC=F"
     assert INSTRUMENTS["Metals Futures"]["Silver Futures (SI=F)"]["ticker"] == "SI=F"
-    assert INSTRUMENTS["Crypto Perpetual Futures"]["Bitcoin USDT-M Perpetual"]["symbol"] == "BTC/USDT:USDT"
-    assert INSTRUMENTS["Crypto Perpetual Futures"]["Ethereum USDT-M Perpetual"]["symbol"] == "ETH/USDT:USDT"
-    assert INSTRUMENTS["Crypto Perpetual Futures"]["Solana USDT-M Perpetual"]["symbol"] == "SOL/USDT:USDT"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Bitcoin Perpetual Futures (BTCUSD)"]["underlying"] == "BTC"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Ethereum Perpetual Futures (ETHUSD)"]["underlying"] == "ETH"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Solana Perpetual Futures"]["underlying"] == "SOL"
     assert INSTRUMENTS["FX Futures"]["Euro FX Futures (6E=F)"]["ticker"] == "6E=F"
     assert INSTRUMENTS["Index Futures"]["Dow Jones E-mini Futures / US30 proxy (YM=F)"]["ticker"] == "YM=F"
 
