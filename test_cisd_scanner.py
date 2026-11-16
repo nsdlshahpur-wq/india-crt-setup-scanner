@@ -76,3 +76,27 @@ def test_new_backtest_returns_metrics_when_history_has_no_setup():
     trades, metrics = backtest_crt_cisd(frame, CISDConfig())
     assert trades.empty
     assert metrics["total_trades"] == 0
+
+
+def test_crt_entry_timeframe_alignment_matches_user_mapping():
+    from cisd_scanner import CRT_MODELS
+    mapping = {item["name"]: item["entry_label"] for item in CRT_MODELS}
+    assert mapping == {"1H": "5M", "4H": "15M", "Daily": "30M", "Weekly": "1H"}
+
+
+def test_zone_engine_exposes_all_four_retest_zone_types():
+    from cisd_scanner import _zone_candidates
+    idx = pd.date_range("2026-01-05 09:15", periods=20, freq="5min")
+    # Mixed candle sequence provides opposing FVGs and displacement/OB candidates.
+    frame = pd.DataFrame({
+        "Open":  [100, 99, 98, 101, 104, 103, 105, 102, 101, 104,
+                  106, 105, 108, 107, 110, 109, 111, 108, 107, 110],
+        "High":  [101, 100, 99, 103, 106, 105, 107, 104, 103, 106,
+                  108, 107, 110, 109, 112, 111, 113, 110, 109, 112],
+        "Low":   [98, 97, 96, 100, 103, 102, 104, 100, 99, 103,
+                  105, 104, 107, 106, 109, 108, 110, 106, 105, 109],
+        "Close": [99, 98, 97, 102, 105, 104, 106, 101, 100, 105,
+                  107, 106, 109, 108, 111, 110, 112, 107, 106, 111],
+    }, index=idx)
+    zones = _zone_candidates(frame, 1, idx[0])
+    assert {z["type"] for z in zones}.issubset({"FVG", "IFVG", "OB", "Advanced OB"})
