@@ -38,7 +38,7 @@ if uploaded is not None:
         st.success(f"Data loaded: {report['rows']:,} candles · {report['start']} → {report['end']}")
         st.caption("Session grouping uploaded timestamps ke calendar date par hoti hai. Agar CSV timezone/session boundary alag hai, results usse prabhavit ho sakte hain.")
         cfg = CISDConfig(rr=float(rr), stop_buffer_points=float(buffer), one_trade_per_day=True)
-        if st.button("Run XAUUSD CISD scan + historical backtest", type="primary):
+        if st.button("Run XAUUSD CISD scan + historical backtest", type="primary"):
             with st.spinner("CISD / FVG sequence scan aur historical simulation chal raha hai..."):
                 trades, metrics = backtest_cisd(
                     data, cfg, charges_bps_per_side=float(charges),
