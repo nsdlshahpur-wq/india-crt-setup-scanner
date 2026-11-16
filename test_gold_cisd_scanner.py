@@ -4,15 +4,17 @@ import pytest
 from gold_cisd_scanner import INSTRUMENTS, load_gold_ohlc_csv
 
 
-def test_supported_markets_are_not_equities():
-    assert set(INSTRUMENTS) == {"Metals", "Crypto", "Forex", "Indices / Futures"}
-    assert INSTRUMENTS["Metals"]["Gold (XAUUSD)"]["provider"] == "Deriv"
-    assert INSTRUMENTS["Metals"]["Silver (XAGUSD)"]["provider"] == "Deriv"
-    assert INSTRUMENTS["Crypto"]["Bitcoin (BTCUSD)"]["symbol"] == "BTC/USDT"
-    assert INSTRUMENTS["Crypto"]["Ethereum (ETHUSD)"]["symbol"] == "ETH/USDT"
-    assert INSTRUMENTS["Crypto"]["Solana (SOLUSD)"]["symbol"] == "SOL/USDT"
-    assert INSTRUMENTS["Forex"]["EURUSD"]["provider"] == "Deriv"
-    assert INSTRUMENTS["Indices / Futures"]["US30"]["provider"] == "Deriv"
+def test_only_futures_and_perpetual_crypto_derivatives_are_listed():
+    assert set(INSTRUMENTS) == {
+        "Metals Futures", "Crypto Perpetual Futures", "FX Futures", "Index Futures"
+    }
+    assert INSTRUMENTS["Metals Futures"]["Gold Futures (GC=F)"]["ticker"] == "GC=F"
+    assert INSTRUMENTS["Metals Futures"]["Silver Futures (SI=F)"]["ticker"] == "SI=F"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Bitcoin USDT-M Perpetual"]["symbol"] == "BTC/USDT:USDT"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Ethereum USDT-M Perpetual"]["symbol"] == "ETH/USDT:USDT"
+    assert INSTRUMENTS["Crypto Perpetual Futures"]["Solana USDT-M Perpetual"]["symbol"] == "SOL/USDT:USDT"
+    assert INSTRUMENTS["FX Futures"]["Euro FX Futures (6E=F)"]["ticker"] == "6E=F"
+    assert INSTRUMENTS["Index Futures"]["Dow Jones E-mini Futures / US30 proxy (YM=F)"]["ticker"] == "YM=F"
 
 
 def test_load_tradingview_style_csv():
