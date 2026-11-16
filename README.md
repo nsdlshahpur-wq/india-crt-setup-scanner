@@ -141,3 +141,14 @@ or source control, revoke it and create a replacement. The assistant uses
 - Important limitation: the quantum circuit itself is currently trained on Daily OHLC only. The five timeframe results are existing CRT screener context, not five separate quantum-trained models. Volume/liquidity is not yet a quantum model feature; no reliable order-book liquidity feed is connected.
 - Kernel class scores are not calibrated probabilities. The output is not an automatic BUY/SELL instruction and does not place trades. Treat the holdout comparison as a small research diagnostic, not proof of predictive edge. Validate with larger walk-forward tests and paper trading before relying on it.
 - To use it, run **Dashboard → Scan market** first, and run **Multi-Symbol Screener** if five-pair CRT context is required. Then ask the central AI: “पूरे मार्केट का Quantum AI analysis करो”.
+
+
+## Separate CISD Liquidity Sweep Scanner
+
+- New page: `pages/5_CISD_Liquidity_Scanner.py`.
+- Engine: `cisd_scanner.py`; offline rules tests: `test_cisd_scanner.py`.
+- Uses NIFTY 50 1-minute historical OHLC already provided by `nifty50_history.py`, resampled to NSE-aligned 5-minute candles.
+- Mechanical sequence from the uploaded CISD lesson: previous-session liquidity sweep and reclaim → CISD line at the open of the first candle in the immediately preceding opposing-colour run → body close across CISD (wick-only does not count) → three-candle FVG → FVG retest/rejection → next-bar-open entry.
+- Stop is beyond the sweep extreme. To honour the requested 1:3 RR while preserving the lesson's old-high/old-low liquidity objective, the opposite previous-session liquidity must be at least 3R away; otherwise the setup is skipped. The backtest target is fixed at 3R.
+- Backtest reports index points, not option/futures rupee P&L. Costs are configurable estimates. The original CRT scanner and its rules are unchanged.
+- Mechanical assumptions are explicit approximations where the short lesson does not define swing lookback, candle-run qualification, or retest confirmation. Validate against chart examples before live use.
