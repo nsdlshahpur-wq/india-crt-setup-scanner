@@ -265,3 +265,183 @@ def backtest_cisd(data_5m: pd.DataFrame, config: CISDConfig | None = None,
         "win_rate_note": "Win rate is TP/(TP+SL); EOD exits are reported separately."
     }
     return trades_df, metrics
+
+
+# ---------------------------------------------------------------------------
+# Replacement strategy: multi-timeframe CRT -> 15M CISD -> 5M FVG retest.
+# The former standalone prior-day-liquidity-only entry model is superseded.
+CRT_MODELS = [
+    {"name": "1H", "rule": "1h", "duration": pd.Timedelta(hours=1)},
+    {"name": "4H", "rule": "4h", "duration": pd.Timedelta(hours=4)},
+    {"name": "Daily", "rule": "1D", "duration": pd.Timedelta(days=1)},
+    {"name": "Weekly", "rule": "W-FRI", "duration": pd.Timedelta(days=7)},
+]
+
+
+def _resample_crt_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
+    frame = five.copy().sort_index()
+    if rule in {"1h", "4h"}:
+        parts = []
+        for _, session in frame.groupby(frame.index.date):
+            bars = session.resample(rule, origin="start_day", offset="15min",
+                                    label="left", closed="left").agg(
+                {"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+            parts.append(bars.dropna())
+        return pd.concat(parts).sort_index() if parts else pd.DataFrame()
+    if rule == "1D":
+        return frame.groupby(frame.index.date).agg(
+            {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+        ).set_axis(pd.to_datetime(sorted(frame.index.date)))
+    daily = _resample_crt_bars(five, "1D")
+    if daily.empty:
+        return daily
+    return daily.resample("W-FRI", label="left", closed="left").agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+
+
+def _cisd_after_sweep(m15: pd.DataFrame, start_time: pd.Timestamp,
+                      direction: int) -> tuple[int, pd.Timestamp, float] | None:
+    data = m15[m15.index >= start_time]
+    for i in range(1, len(data)):
+        row = data.iloc[i]
+        if direction == 1 and _is_bull(row) and _is_bear(data.iloc[i - 1]):
+            j = i - 1
+            while j > 0 and _is_bear(data.iloc[j - 1]):
+                j -= 1
+            line = float(data.iloc[j]["Open"])
+            if float(row["Close"]) > line:
+                return direction, data.index[i], line
+        if direction == -1 and _is_bear(row) and _is_bull(data.iloc[i - 1]):
+            j = i - 1
+            while j > 0 and _is_bull(data.iloc[j - 1]):
+                j -= 1
+            line = float(data.iloc[j]["Open"])
+            if float(row["Close"]) < line:
+                return direction, data.index[i], line
+    return None
+
+
+def _entry_after_cisd(five: pd.DataFrame, cisd_time: pd.Timestamp,
+                      direction: int) -> dict[str, Any] | None:
+    data = five[five.index > cisd_time]
+    if len(data) < 5:
+        return None
+    # FVG forms after the confirmed CISD; then wait for a later rejection retest.
+    for i in range(2, len(data) - 1):
+        a, c = data.iloc[i - 2], data.iloc[i]
+        if direction == 1 and float(c.Low) > float(a.High):
+            zlo, zhi = float(a.High), float(c.Low)
+        elif direction == -1 and float(c.High) < float(a.Low):
+            zlo, zhi = float(c.High), float(a.Low)
+        else:
+            continue
+        for j in range(i + 1, len(data) - 1):
+            bar = data.iloc[j]
+            touched = float(bar.Low) <= zhi and float(bar.High) >= zlo
+            reject = (_is_bull(bar) and float(bar.Close) > zlo) if direction == 1 else (
+                _is_bear(bar) and float(bar.Close) < zhi)
+            if touched and reject:
+                nxt = data.iloc[j + 1]
+                return {"entry": float(nxt.Open), "entry_time": data.index[j + 1],
+                        "signal_time": data.index[j], "fvg_low": zlo, "fvg_high": zhi}
+    return None
+
+
+def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
+                      slippage_points_per_side: float = 0.0) -> tuple[pd.DataFrame, dict]:
+    """Backtest four CRT models with sequential 15M CISD and 5M FVG retest."""
+    cfg = config or CISDConfig()
+    five = five.dropna(subset=["Open", "High", "Low", "Close"]).sort_index()
+    m15 = five.resample("15min", origin="start_day", offset="15min",
+                        label="left", closed="left").agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+    rows = []
+    for model in CRT_MODELS:
+        crt = _resample_crt_bars(five, model["rule"])
+        if len(crt) < 3:
+            continue
+        used_sessions = set()
+        for k in range(1, len(crt)):
+            m1, m2 = crt.iloc[k - 1], crt.iloc[k]
+            hi, lo = float(m1.High), float(m1.Low)
+            sweep_low, sweep_high = float(m2.Low) < lo, float(m2.High) > hi
+            if sweep_low == sweep_high:
+                continue
+            direction = 1 if sweep_low else -1
+            close = float(m2.Close)
+            if not (lo < close < hi):
+                continue
+            m2_start = pd.Timestamp(crt.index[k])
+            m2_end = m2_start + model["duration"]
+            cisd = _cisd_after_sweep(m15, m2_end, direction)
+            if cisd is None:
+                continue
+            _, cisd_time, cisd_line = cisd
+            entry_setup = _entry_after_cisd(five, cisd_time, direction)
+            if not entry_setup:
+                continue
+            entry = float(entry_setup["entry"]) + (slippage_points_per_side if direction == 1 else -slippage_points_per_side)
+            extreme = float(m2.Low if direction == 1 else m2.High)
+            stop = extreme - cfg.stop_buffer_points if direction == 1 else extreme + cfg.stop_buffer_points
+            risk = entry - stop if direction == 1 else stop - entry
+            if risk <= 0:
+                continue
+            target2 = entry + direction * 2 * risk
+            target3 = entry + direction * 3 * risk
+            entry_time = pd.Timestamp(entry_setup["entry_time"])
+            session_key = entry_time.date()
+            if cfg.one_trade_per_day and session_key in used_sessions:
+                continue
+            future = five[five.index >= entry_time]
+            exit_price, exit_time, result, target = None, None, "EOD", target3
+            for ts, bar in future.iterrows():
+                stop_hit = float(bar.Low) <= stop if direction == 1 else float(bar.High) >= stop
+                hit3 = float(bar.High) >= target3 if direction == 1 else float(bar.Low) <= target3
+                if stop_hit:
+                    exit_price, exit_time, result = stop, ts, "SL"
+                    break
+                if hit3:
+                    exit_price, exit_time, result = target3, ts, "TP 3R"
+                    break
+                if ts.date() != entry_time.date():
+                    break
+            if exit_price is None:
+                same_day = future[future.index.date == entry_time.date()]
+                if same_day.empty:
+                    continue
+                exit_time, exit_price = same_day.index[-1], float(same_day.Close.iloc[-1])
+            gross = direction * (exit_price - entry)
+            rows.append({
+                "CRT timeframe": model["name"], "side": "LONG" if direction == 1 else "SHORT",
+                "CRT M1 high": hi, "CRT M1 low": lo,
+                "CRT M2 high": float(m2.High), "CRT M2 low": float(m2.Low),
+                "sweep_extreme": extreme, "cisd_line": cisd_line,
+                "cisd_time": cisd_time, "fvg_low": entry_setup["fvg_low"],
+                "fvg_high": entry_setup["fvg_high"], "entry_time": entry_time,
+                "entry": entry, "stop_loss": stop, "target_1_2R": target2,
+                "target_2_3R": target3, "exit_time": exit_time,
+                "exit": exit_price, "result": result, "gross_points": gross,
+                "net_points": gross, "risk_points": risk,
+            })
+            used_sessions.add(session_key)
+    trades = pd.DataFrame(rows)
+    if trades.empty:
+        return trades, {"total_trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0,
+                        "profit_factor": 0.0, "net_points": 0.0, "max_drawdown_points": 0.0}
+    decisive = trades[trades.result != "EOD"]
+    wins = decisive[decisive.net_points > 0]
+    losses = decisive[decisive.net_points <= 0]
+    gp = float(trades.net_points.clip(lower=0).sum())
+    gl = float(abs(trades.net_points.clip(upper=0).sum()))
+    equity = trades.sort_values("exit_time").net_points.cumsum()
+    peak = equity.cummax().clip(lower=0)
+    return trades, {
+        "total_trades": len(trades), "wins": len(wins), "losses": len(losses),
+        "eod_exits": int((trades.result == "EOD").sum()),
+        "win_rate": len(wins) / (len(wins) + len(losses)) * 100 if len(wins) + len(losses) else 0,
+        "profit_factor": gp / gl if gl else (float("inf") if gp else 0),
+        "net_points": float(trades.net_points.sum()),
+        "max_drawdown_points": float((peak - equity).max()),
+        "avg_win_points": float(wins.net_points.mean()) if len(wins) else 0,
+        "avg_loss_points": float(losses.net_points.mean()) if len(losses) else 0,
+    }
