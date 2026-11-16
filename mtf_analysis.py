@@ -16,6 +16,10 @@ CRT_SPECS = [
     {"CRT": "Daily", "period": "2y", "interval": "1d", "duration": "1d"},
     {"CRT": "Weekly", "period": "5y", "interval": "1wk", "duration": "7d"},
 ]
+# Compatibility alias for existing multi-symbol UI imports; these are CRT-only
+# models now. Entry is always sequential 15M CISD -> 5M FVG retest.
+PAIR_SPECS = CRT_SPECS
+
 ENTRY_SPECS = {
     "15M": {"period": "60d", "interval": "15m"},
     "5M": {"period": "60d", "interval": "5m"},
