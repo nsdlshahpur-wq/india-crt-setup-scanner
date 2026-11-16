@@ -143,16 +143,16 @@ or source control, revoke it and create a replacement. The assistant uses
 - To use it, run **Dashboard → Scan market** first, and run **Multi-Symbol Screener** if five-pair CRT context is required. Then ask the central AI: “पूरे मार्केट का Quantum AI analysis करो”.
 
 
-## Multi-Asset CISD + FVG Scanner
+## Multi-Asset Futures CISD + FVG Scanner
 
 - Page: `pages/6_XAUUSD_Gold_CISD_Scanner.py`; engine: `gold_cisd_scanner.py`.
-- Crypto pairs use CCXT public exchange APIs: Binance first, KuCoin fallback. No trading API keys or account permissions are used.
-- Metals (XAUUSD, XAGUSD), Forex pairs, and US30 are resolved from Deriv's public `active_symbols` WebSocket response; the scanner requests 5-minute candles and a latest tick snapshot. If Deriv does not list a requested symbol or data is unavailable, the scanner reports an error rather than silently substituting another market.
-- US30 availability depends on Deriv's active symbol list and may be represented by a provider-specific Wall Street/Dow symbol, not a broker CFD.
-- No stocks/equities are included.
-- Yahoo Finance is no longer the primary data provider for this scanner.
-- Provider prices can differ from a broker's quote due to venue, spread, contract specification and execution. Public market data only; no orders are placed.
-- Historical CISD results are expressed in instrument price units, not account-currency or broker lot-sized P&L.
+- Metals: Yahoo Finance continuous futures symbols `GC=F` (Gold) and `SI=F` (Silver).
+- US index: `YM=F` E-mini Dow futures as the US30 proxy.
+- FX futures: CME currency futures `6E=F`, `6B=F`, `6J=F`, `6A=F`, `6C=F`, `6S=F`, and `6N=F`. These are futures contracts, not spot EURUSD/GBPUSD-style FX quotes.
+- Crypto: Binance USD-M USDT-margined perpetual futures via CCXT. These are perpetual futures (no expiry), not spot and not options.
+- No options or spot fallback is used. If the selected futures feed is unavailable, the scanner shows an error instead of substituting another market.
+- Yahoo intraday futures quotes can be delayed or unavailable; continuous futures series can be affected by contract rolls. Crypto futures prices are Binance venue-specific.
+- No stocks/equities are included. No orders are placed. Results are in instrument price units, not broker/account currency or lot-sized P&L.
 
 
 ## Separate CISD Liquidity Sweep Scanner
