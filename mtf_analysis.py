@@ -1,41 +1,31 @@
-"""CRT HTF->LTF scanner using the SAME FVG/IFVG/OB/BOB retest rules as scanner.py."""
+"""NIFTY intraday CRT + CISD strategy.
+
+CRT is detected only on Weekly/Daily/4H/1H. 15m confirms CISD;
+5m supplies the FVG retest/entry trigger. Closed candles only.
+"""
 from __future__ import annotations
 
 from typing import Any
-
 import pandas as pd
 import yfinance as yf
-
 from data_fetch import yahoo_ticker
-from scanner import (
-    ScanConfig, _collect_entry_zones, _find_entry_in_zones,
-    _confirmed_pivots, _zone_is_active, _find_m3_choch,
-)
 
-PAIR_SPECS = [
-    # Each CRT timeframe is checked independently for both requested entry timeframes.
-    {"HTF": "1H", "LTF": "15M", "htf_period": "60d", "htf_interval": "60m",
-     "ltf_period": "60d", "ltf_interval": "15m"},
-    {"HTF": "1H", "LTF": "5M", "htf_period": "60d", "htf_interval": "60m",
-     "ltf_period": "60d", "ltf_interval": "5m"},
-    {"HTF": "4H", "LTF": "15M", "htf_period": "60d", "htf_interval": "60m",
-     "htf_resample": "4h", "ltf_period": "60d", "ltf_interval": "15m"},
-    {"HTF": "4H", "LTF": "5M", "htf_period": "60d", "htf_interval": "60m",
-     "htf_resample": "4h", "ltf_period": "60d", "ltf_interval": "5m"},
-    {"HTF": "Daily", "LTF": "15M", "htf_period": "2y", "htf_interval": "1d",
-     "ltf_period": "60d", "ltf_interval": "15m"},
-    {"HTF": "Daily", "LTF": "5M", "htf_period": "2y", "htf_interval": "1d",
-     "ltf_period": "60d", "ltf_interval": "5m"},
-    {"HTF": "Weekly", "LTF": "15M", "htf_period": "5y", "htf_interval": "1wk",
-     "ltf_period": "60d", "ltf_interval": "15m"},
-    {"HTF": "Weekly", "LTF": "5M", "htf_period": "5y", "htf_interval": "1wk",
-     "ltf_period": "60d", "ltf_interval": "5m"},
+CRT_SPECS = [
+    {"CRT": "1H", "period": "60d", "interval": "60m", "duration": "1h"},
+    {"CRT": "4H", "period": "60d", "interval": "60m", "resample": "4h", "duration": "4h"},
+    {"CRT": "Daily", "period": "2y", "interval": "1d", "duration": "1d"},
+    {"CRT": "Weekly", "period": "5y", "interval": "1wk", "duration": "7d"},
 ]
+ENTRY_SPECS = {
+    "15M": {"period": "60d", "interval": "15m"},
+    "5M": {"period": "60d", "interval": "5m"},
+}
+MIN_RR = 2.0
+TARGET_R_MULTIPLE = 3.0
+TICK_SIZE = 0.05
 
-CONFIG = ScanConfig(pivot_left=5, pivot_right=5)
 
-
-def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
+def clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     if frame is None or frame.empty:
         return pd.DataFrame()
     data = frame.copy()
@@ -58,310 +48,242 @@ def _clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     ).dropna()
 
 
-def _resample(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
-    if frame.empty:
-        return frame
-    return frame.resample(rule, label="right", closed="right").agg({
+def closed_bars(frame: pd.DataFrame) -> pd.DataFrame:
+    data = clean_ohlc(frame)
+    # Conservatively exclude the latest possibly-forming candle.
+    return data.iloc[:-1] if len(data) > 1 else pd.DataFrame()
+
+
+def resample_ohlc(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+    data = clean_ohlc(frame)
+    if data.empty:
+        return data
+    return data.resample(rule, label="right", closed="right").agg({
         "Open": "first", "High": "max", "Low": "min", "Close": "last"
     }).dropna()
 
 
-def _download(ticker: str, period: str, interval: str) -> pd.DataFrame:
-    return _clean_ohlc(yf.download(
+def download(ticker: str, period: str, interval: str) -> pd.DataFrame:
+    return clean_ohlc(yf.download(
         ticker, period=period, interval=interval, auto_adjust=False,
         progress=False, threads=False, timeout=25,
     ))
 
 
-def _closed_bars(frame: pd.DataFrame) -> pd.DataFrame:
-    data = _clean_ohlc(frame)
-    return data.iloc[:-1] if len(data) > 1 else pd.DataFrame()
+def _atr(frame: pd.DataFrame, length: int = 14) -> float:
+    data = clean_ohlc(frame)
+    if len(data) < 2:
+        return TICK_SIZE
+    prev_close = data.Close.shift(1)
+    tr = pd.concat([
+        data.High - data.Low,
+        (data.High - prev_close).abs(),
+        (data.Low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    value = tr.rolling(length, min_periods=2).mean().iloc[-1]
+    return max(float(value) if pd.notna(value) else TICK_SIZE, TICK_SIZE)
 
 
-def _sweep_and_mss(frame: pd.DataFrame) -> dict[str, Any]:
-    """Find latest sweep and subsequent confirmed pivot break, without look-ahead."""
-    data = _closed_bars(frame)
-    empty = {"direction": 0, "sweep": "NO DATA", "mss": "—", "sweep_index": None,
-             "choch_index": None, "close": None, "time": None}
-    if len(data) < max(12, CONFIG.pivot_left + CONFIG.pivot_right + 4):
-        return empty
-    highs, lows = data.High, data.Low
-    bull_sweeps = [i for i in range(1, len(data))
-                   if lows.iloc[i] < lows.iloc[i-1] and data.Close.iloc[i] > lows.iloc[i-1]]
-    bear_sweeps = [i for i in range(1, len(data))
-                   if highs.iloc[i] > highs.iloc[i-1] and data.Close.iloc[i] < highs.iloc[i-1]]
-    candidates = [(i, 1) for i in bull_sweeps] + [(i, -1) for i in bear_sweeps]
-    if not candidates:
-        out = dict(empty)
-        out.update({"sweep": "—", "mss": "NO", "close": round(float(data.Close.iloc[-1]), 2),
-                    "time": data.index[-1].strftime("%d-%b-%Y %H:%M")})
-        return out
-    sweep_i, direction = max(candidates, key=lambda item: item[0])
-    pivots = _confirmed_pivots(
-        data.High if direction == 1 else data.Low,
-        CONFIG.pivot_left, CONFIG.pivot_right, is_high=(direction == 1)
-    )
-    level = None
-    choch_i = None
-    for i in range(sweep_i + 1, len(data)):
-        available = pivots.iloc[:i].dropna()
-        if available.empty:
-            continue
-        level = float(available.iloc[-1])
-        if (float(data.Close.iloc[i]) > level if direction == 1 else float(data.Close.iloc[i]) < level):
-            choch_i = i
-            break
-    return {
-        "direction": direction if choch_i is not None else 0,
-        "sweep": "BULL SWEEP" if direction == 1 else "BEAR SWEEP",
-        "mss": "BULL MSS" if choch_i is not None and direction == 1 else
-               "BEAR MSS" if choch_i is not None else "NO",
-        "sweep_index": sweep_i, "choch_index": choch_i,
-        "close": round(float(data.Close.iloc[-1]), 2),
-        "time": data.index[-1].strftime("%d-%b-%Y %H:%M"),
-    }
-
-
-def _entry_from_same_zones(frame: pd.DataFrame, structure: dict[str, Any]) -> dict[str, Any]:
-    """Reuse scanner.py's exact zone formation, invalidation, retest and confirmation."""
-    data = _closed_bars(frame)
-    direction, choch_i = structure["direction"], structure["choch_index"]
-    result = {"zone": "—", "retest_price": None, "entry": None,
-              "entry_time": None, "status": "WAIT RETEST"}
-    if direction not in (-1, 1) or choch_i is None or choch_i >= len(data) - 1:
-        return result
-    zones = _collect_entry_zones(data, 0, int(choch_i), len(data)-1, direction, CONFIG)
-    active = [z for z in zones if _zone_is_active(data, z, direction)]
-    candidate = _find_entry_in_zones(data, active, direction, CONFIG.entry_valid_days)
-    if candidate is None:
-        if active:
-            result.update({"zone": "+".join(dict.fromkeys(z["type"] for z in active)),
-                           "status": "WAIT RETEST"})
+def _find_15m_cisd(frame: pd.DataFrame, direction: int) -> dict[str, Any]:
+    """CISD: body close through the open of the preceding opposing delivery run."""
+    data = closed_bars(frame)
+    if len(data) < 4:
+        return {"confirmed": False, "time": None, "line": None, "status": "WAIT 15M CISD"}
+    for i in range(1, len(data)):
+        row = data.iloc[i]
+        if direction == 1:
+            # Bullish reversal: preceding contiguous bearish candle run.
+            if float(row.Close) <= float(row.Open):
+                continue
+            j = i - 1
+            if float(data.Close.iloc[j]) >= float(data.Open.iloc[j]):
+                continue
+            while j > 0 and float(data.Close.iloc[j - 1]) < float(data.Open.iloc[j - 1]):
+                j -= 1
+            line = float(data.Open.iloc[j])
+            if float(row.Close) > line:
+                return {"confirmed": True, "time": data.index[i], "line": line,
+                        "status": "BULLISH CISD"}
         else:
-            result["status"] = "WAIT ZONE"
-        return result
-    z = candidate["zone"]
-    entry_i, retest_i = int(candidate["entry_index"]), int(candidate["retest_index"])
-    result.update({
-        "zone": "+".join(candidate["zone_types"]),
-        "retest_price": round((float(z["low"]) + float(z["high"])) / 2, 2),
-        "entry": round(float(data.Close.iloc[entry_i]), 2),
-        "entry_time": data.index[entry_i].strftime("%d-%b-%Y %H:%M"),
-        "status": "ORDER",
-    })
-    return result
+            if float(row.Close) >= float(row.Open):
+                continue
+            j = i - 1
+            if float(data.Close.iloc[j]) <= float(data.Open.iloc[j]):
+                continue
+            while j > 0 and float(data.Close.iloc[j - 1]) > float(data.Open.iloc[j - 1]):
+                j -= 1
+            line = float(data.Open.iloc[j])
+            if float(row.Close) < line:
+                return {"confirmed": True, "time": data.index[i], "line": line,
+                        "status": "BEARISH CISD"}
+    return {"confirmed": False, "time": None, "line": None, "status": "WAIT 15M CISD"}
 
 
-def _analyze_pair_with_monthly_crt_rules(
-    higher: pd.DataFrame,
-    lower: pd.DataFrame,
-) -> dict[str, Any]:
-    """Separate CRT-timeframe candle marking from lower-timeframe entry planning.
+def _find_5m_fvg_retest(frame: pd.DataFrame, direction: int, cisd_time) -> dict[str, Any]:
+    """Find a post-CISD three-candle FVG and a later confirmed retest candle."""
+    data = closed_bars(frame)
+    if data.empty or cisd_time is None:
+        return {"confirmed": False, "status": "WAIT 5M ENTRY", "entry": None,
+                "entry_time": None, "fvg_low": None, "fvg_high": None}
+    data = data[data.index > pd.Timestamp(cisd_time)]
+    if len(data) < 4:
+        return {"confirmed": False, "status": "WAIT 5M FVG", "entry": None,
+                "entry_time": None, "fvg_low": None, "fvg_high": None}
 
-    M1 and M2 are the two most recent COMPLETED candles on the CRT timeframe.
-    M1 defines the CRT range. M2 itself must sweep exactly one M1 boundary and
-    close back inside the full M1 range. Entry analysis begins only after M2
-    has completed, using the configured lower timeframe.
-    """
-    htf_all = _clean_ohlc(higher)
-    htf = _closed_bars(htf_all)
-    ltf_all = _clean_ohlc(lower)
-    ltf = _closed_bars(ltf_all)
+    zones = []
+    for i in range(2, len(data)):
+        a, c = data.iloc[i - 2], data.iloc[i]
+        if direction == 1 and float(c.Low) > float(a.High):
+            zones.append((i, float(a.High), float(c.Low)))
+        elif direction == -1 and float(c.High) < float(a.Low):
+            zones.append((i, float(c.High), float(a.Low)))
 
+    for formed_i, zone_low, zone_high in reversed(zones):
+        for i in range(formed_i + 1, len(data)):
+            row = data.iloc[i]
+            touched = float(row.Low) <= zone_high and float(row.High) >= zone_low
+            if not touched:
+                continue
+            confirmed = (
+                float(row.Close) > float(row.Open) and float(row.Close) > zone_low
+                if direction == 1 else
+                float(row.Close) < float(row.Open) and float(row.Close) < zone_high
+            )
+            if confirmed and i == len(data) - 1:
+                return {
+                    "confirmed": True, "status": "5M FVG RETEST CONFIRMED",
+                    "entry": round(float(row.Close), 2),
+                    "entry_time": data.index[i].strftime("%Y-%m-%d %H:%M"),
+                    "fvg_low": round(zone_low, 2), "fvg_high": round(zone_high, 2),
+                }
+    return {"confirmed": False, "status": "WAIT 5M FVG RETEST", "entry": None,
+            "entry_time": None, "fvg_low": None, "fvg_high": None}
+
+
+def analyze_crt_cisd_pair(crt_frame: pd.DataFrame, m15: pd.DataFrame,
+                          m5: pd.DataFrame, duration: str,
+                          crt_name: str) -> dict[str, Any]:
+    htf_all = clean_ohlc(crt_frame)
+    htf = closed_bars(htf_all)
     empty = {
-        "m1_high": None, "m1_low": None, "m1_time": None,
-        "m2_high": None, "m2_low": None, "m2_close": None, "m2_time": None,
-        "htf_sweep": "—", "sweep_direction": "—",
-        "ltf_choch": "NO", "zone": "—", "retest_zone": "—",
-        "retest_price": None, "entry": None, "entry_time": None,
-        "stop_loss": None, "target": None, "rr": None,
-        "signal": "WAIT", "alignment": "WAIT — INSUFFICIENT CRT HISTORY",
-        "entry_status": "WAIT", "htf_close": None, "ltf_close": None,
-        "choch_time": None,
+        "CRT Timeframe": crt_name, "CRT M1 High": None, "CRT M1 Low": None,
+        "CRT M2 High": None, "CRT M2 Low": None, "CRT M2 Close": None,
+        "CRT Sweep": "WAIT", "15M CISD": "WAIT", "CISD Reference": None,
+        "5M Entry Status": "WAIT", "FVG Low": None, "FVG High": None,
+        "Entry Price": None, "Entry Time": None, "Stop Loss": None,
+        "Target 1 (2R)": None, "Target 2 (3R)": None, "Risk Points": None,
+        "RR": None, "Signal": "WAIT", "Alignment": "WAIT — CRT HISTORY",
+        "Entry Status": "WAIT", "CRT Close": None, "15M Close": None,
+        "5M Close": None, "CISD Time": None,
     }
     if len(htf) < 2 or len(htf_all) < 3:
         return empty
 
-    # M1/M2 are explicitly selected on the CRT timeframe, not inferred from LTF bars.
     m1, m2 = htf.iloc[-2], htf.iloc[-1]
     m1_high, m1_low = float(m1.High), float(m1.Low)
     m2_high, m2_low, m2_close = float(m2.High), float(m2.Low), float(m2.Close)
-    # Last row in the original HTF data is the currently forming next candle.
-    next_htf_start = htf_all.index[-1]
-
     swept_low = m2_low < m1_low
     swept_high = m2_high > m1_high
     reclaimed = m1_low < m2_close < m1_high
     marked = {
-        "m1_high": m1_high, "m1_low": m1_low,
-        "m1_time": htf.index[-2].strftime("%Y-%m-%d %H:%M"),
-        "m2_high": m2_high, "m2_low": m2_low, "m2_close": m2_close,
-        "m2_time": htf.index[-1].strftime("%Y-%m-%d %H:%M"),
-        "htf_close": round(m2_close, 2),
-        "ltf_close": round(float(ltf.Close.iloc[-1]), 2) if not ltf.empty else None,
+        "CRT M1 High": round(m1_high, 2), "CRT M1 Low": round(m1_low, 2),
+        "CRT M2 High": round(m2_high, 2), "CRT M2 Low": round(m2_low, 2),
+        "CRT M2 Close": round(m2_close, 2), "CRT Close": round(m2_close, 2),
+        "15M Close": round(float(closed_bars(m15).Close.iloc[-1]), 2) if not closed_bars(m15).empty else None,
+        "5M Close": round(float(closed_bars(m5).Close.iloc[-1]), 2) if not closed_bars(m5).empty else None,
     }
-
     if swept_low and swept_high:
-        return {
-            **empty, **marked,
-            "htf_sweep": "DOUBLE SWEEP — REJECTED",
-            "sweep_direction": "AMBIGUOUS",
-            "alignment": "WAIT — M2 SWEPT BOTH M1 SIDES",
-            "entry_status": "REJECTED",
-        }
-    if not reclaimed:
-        return {
-            **empty, **marked,
-            "htf_sweep": "SWEEP WITHOUT FULL-RANGE RECLAIM" if (swept_low or swept_high) else "NO SWEEP",
-            "sweep_direction": "BULLISH" if swept_low else ("BEARISH" if swept_high else "—"),
-            "alignment": "WAIT — M2 MUST CLOSE INSIDE M1 HIGH/LOW",
-        }
-    if not swept_low and not swept_high:
-        return {
-            **empty, **marked,
-            "htf_sweep": "NO SWEEP",
-            "alignment": "WAIT — M2 DID NOT SWEEP M1 RANGE",
-        }
+        return {**empty, **marked, "CRT Sweep": "DOUBLE SWEEP — REJECTED",
+                "Alignment": "WAIT — AMBIGUOUS DOUBLE SWEEP", "Entry Status": "REJECTED"}
+    if not (swept_low or swept_high) or not reclaimed:
+        label = "SWEEP WITHOUT RECLAIM" if (swept_low or swept_high) else "NO SWEEP"
+        return {**empty, **marked, "CRT Sweep": label,
+                "Alignment": "WAIT — M2 MUST SWEEP ONE SIDE AND CLOSE INSIDE M1"}
 
     direction = 1 if swept_low else -1
-    sweep_label = "BULL SWEEP" if direction == 1 else "BEAR SWEEP"
-    direction_label = "BULLISH" if direction == 1 else "BEARISH"
-
-    # Entry timeframe starts after the M2 CRT candle has closed.
-    entry_data = ltf[ltf.index >= next_htf_start]
-    if len(entry_data) < max(12, CONFIG.pivot_left + CONFIG.pivot_right + 5):
-        return {
-            **empty, **marked,
-            "htf_sweep": sweep_label, "sweep_direction": direction_label,
-            "alignment": "WAIT — NOT ENOUGH POST-SWEEP ENTRY-TF HISTORY",
-            "entry_status": "WAIT CHoCH",
-        }
-
-    # The HTF M2 candle is the sweep candle; its extreme defines the stop.
-    sweep_stop = m2_low if direction == 1 else m2_high
-    opposite_target = m1_high if direction == 1 else m1_low
-    entry_data = entry_data.copy()
-    last_index = len(entry_data) - 1
-
-    # The LTF structure is evaluated independently after the HTF M2 close.
-    choch = _find_m3_choch(entry_data, 0, 0, last_index, direction, CONFIG)
-    base = {
-        **empty, **marked,
-        "htf_sweep": sweep_label,
-        "sweep_direction": direction_label,
-        "stop_loss": round(sweep_stop, 2),
-        "target": round(opposite_target, 2),
-        "htf_close": round(m2_close, 2),
-        "ltf_close": round(float(entry_data.Close.iloc[-1]), 2),
-    }
-    if choch["index"] is None:
-        base.update({
-            "alignment": "WAIT — ENTRY-TF CHoCH NOT CONFIRMED",
-            "entry_status": "WAIT CHoCH",
-        })
+    side = "BULLISH" if direction == 1 else "BEARISH"
+    # Start lower-timeframe confirmation only after the M2 CRT candle is complete.
+    m2_end = htf.index[-1] + pd.Timedelta(duration)
+    m15_after = clean_ohlc(m15)
+    m15_after = m15_after[m15_after.index >= m2_end]
+    cisd = _find_15m_cisd(m15_after, direction)
+    base = {**empty, **marked, "CRT Sweep": f"{side} LIQUIDITY SWEEP",
+            "CISD Reference": round(cisd["line"], 2) if cisd["line"] is not None else None,
+            "15M CISD": cisd["status"], "CISD Time": str(cisd["time"]) if cisd["time"] is not None else None}
+    if not cisd["confirmed"]:
+        base.update({"Alignment": "WAIT — 15M CISD NOT CONFIRMED",
+                     "Entry Status": "WAIT 15M CISD"})
         return base
 
-    choch_index = int(choch["index"])
-    choch_label = "BULL CHoCH" if direction == 1 else "BEAR CHoCH"
-    zones = _collect_entry_zones(
-        entry_data, 0, choch_index, last_index, direction, CONFIG
-    )
-    active_zones = [z for z in zones if _zone_is_active(entry_data, z, direction)]
-    zone_names = list(dict.fromkeys(z["type"] for z in active_zones))
+    m5_after = clean_ohlc(m5)
+    m5_after = m5_after[m5_after.index > pd.Timestamp(cisd["time"])]
+    entry_setup = _find_5m_fvg_retest(m5_after, direction, cisd["time"])
     base.update({
-        "ltf_choch": choch_label,
-        "zone": "+".join(zone_names) if zone_names else "—",
-        "alignment": "WAIT — ENTRY-TF ZONE RETEST",
-        "entry_status": "WAIT RETEST" if active_zones else "WAIT ZONE",
-        "choch_time": entry_data.index[choch_index].strftime("%Y-%m-%d %H:%M"),
+        "5M Entry Status": entry_setup["status"],
+        "FVG Low": entry_setup["fvg_low"], "FVG High": entry_setup["fvg_high"],
+        "Alignment": "WAIT — 5M ENTRY CONFIRMATION",
+        "Entry Status": entry_setup["status"],
     })
-    if not active_zones:
+    if not entry_setup["confirmed"]:
         return base
 
-    candidate = _find_entry_in_zones(
-        entry_data, active_zones, direction, CONFIG.entry_valid_days
-    )
-    if candidate is None:
-        return base
-
-    entry_index = int(candidate["entry_index"])
-    zone = candidate["zone"]
-    entry_price = float(entry_data.Close.iloc[entry_index])
-    risk = abs(entry_price - sweep_stop)
-    reward = abs(opposite_target - entry_price)
-    rr = reward / risk if risk > 0 else 0.0
+    entry = float(entry_setup["entry"])
+    atr = _atr(m5_after)
+    buffer = max(TICK_SIZE, atr * 0.10)
+    sweep_extreme = m2_low if direction == 1 else m2_high
+    stop = sweep_extreme - buffer if direction == 1 else sweep_extreme + buffer
+    risk = entry - stop if direction == 1 else stop - entry
+    if risk <= 0:
+        return {**base, "Alignment": "REJECTED — INVALID STOP", "Entry Status": "REJECTED"}
+    t1 = entry + direction * 2.0 * risk
+    t2 = entry + direction * TARGET_R_MULTIPLE * risk
     base.update({
-        "zone": "+".join(candidate["zone_types"]),
-        "retest_zone": "+".join(candidate["zone_types"]),
-        "retest_price": round((float(zone["low"]) + float(zone["high"])) / 2, 2),
-        "rr": round(rr, 2),
-        "entry_time": entry_data.index[entry_index].strftime("%Y-%m-%d %H:%M"),
-    })
-    if risk <= 0 or reward <= 0 or rr < 1.5:
-        base.update({
-            "alignment": "WAIT — MINIMUM RR 1.5 NOT MET",
-            "entry_status": "RETEST FOUND — RR FILTER FAILED",
-        })
-        return base
-    if entry_index != last_index:
-        base.update({
-            "alignment": "WAIT — ENTRY WAS ON AN EARLIER ENTRY-TF CANDLE",
-            "entry_status": "MISSED — NO FRESH ENTRY",
-        })
-        return base
-
-    base.update({
-        "entry": round(entry_price, 2),
-        "signal": "BULL ORDER" if direction == 1 else "BEAR ORDER",
-        "alignment": "CRT M1/M2 + ENTRY-TF CHoCH + ZONE RETEST CONFIRMED",
-        "entry_status": "ORDER",
+        "Entry Price": round(entry, 2), "Entry Time": entry_setup["entry_time"],
+        "Stop Loss": round(stop, 2), "Target 1 (2R)": round(t1, 2),
+        "Target 2 (3R)": round(t2, 2), "Risk Points": round(risk, 2),
+        "RR": "1:2 / 1:3", "Signal": "BUY" if direction == 1 else "SELL",
+        "Alignment": "CRT SWEEP + 15M CISD + 5M FVG RETEST CONFIRMED",
+        "Entry Status": "ORDER",
     })
     return base
 
+
 def analyze_mtf_symbol(symbol: str) -> tuple[pd.DataFrame, dict[str, str]]:
     ticker = yahoo_ticker(symbol)
-    rows: list[dict[str, Any]] = []
-    errors: dict[str, str] = {}
     cache: dict[tuple[str, str], pd.DataFrame] = {}
+    errors: dict[str, str] = {}
 
     def get_data(period: str, interval: str, resample: str | None = None) -> pd.DataFrame:
         key = (period, interval)
         if key not in cache:
-            cache[key] = _download(ticker, period, interval)
+            cache[key] = download(ticker, period, interval)
         frame = cache[key]
-        return _resample(frame, resample) if resample else frame
+        return resample_ohlc(frame, resample) if resample else frame
 
-    for spec in PAIR_SPECS:
-        htf, ltf = spec["HTF"], spec["LTF"]
-        pair = f"{htf} → {ltf}"
+    m15 = get_data(**ENTRY_SPECS["15M"])
+    m5 = get_data(**ENTRY_SPECS["5M"])
+    rows = []
+    for spec in CRT_SPECS:
+        name = spec["CRT"]
         try:
-            higher = get_data(spec["htf_period"], spec["htf_interval"], spec.get("htf_resample"))
-            lower = get_data(spec["ltf_period"], spec["ltf_interval"], spec.get("ltf_resample"))
-            crt = _analyze_pair_with_monthly_crt_rules(higher, lower)
-            rows.append({
-                "HTF → LTF": pair,
-                "CRT M1 High": crt["m1_high"], "CRT M1 Low": crt["m1_low"],
-                "CRT M1 Candle": crt["m1_time"],
-                "CRT M2 High": crt["m2_high"], "CRT M2 Low": crt["m2_low"],
-                "CRT M2 Close": crt["m2_close"], "CRT M2 Candle": crt["m2_time"],
-                "CRT Sweep": crt["htf_sweep"], "Sweep Direction": crt["sweep_direction"],
-                "Entry-TF CHoCH": crt["ltf_choch"], "Entry Zone": crt["zone"],
-                "Retest Zone": crt["retest_zone"], "Retest Price": crt["retest_price"],
-                "Entry Price": crt["entry"], "Entry Time": crt["entry_time"],
-                "Stop Loss": crt["stop_loss"], "Target": crt["target"], "RR": crt["rr"],
-                "Alignment": crt["alignment"], "Entry Status": crt["entry_status"],
-                "Signal": crt["signal"], "CRT Close": crt["htf_close"],
-                "Entry-TF Close": crt["ltf_close"], "CHoCH Time": crt["choch_time"],
-            })
-            if crt["htf_close"] is None or crt["ltf_close"] is None:
-                errors[pair] = "Insufficient timeframe history"
+            higher = get_data(spec["period"], spec["interval"], spec.get("resample"))
+            row = analyze_crt_cisd_pair(higher, m15, m5, spec["duration"], name)
+            # Compatibility fields retained for the scheduled scanner export.
+            row["HTF → LTF"] = f"{name} → 15M CISD → 5M Entry"
+            row["Entry Zone"] = "FVG" if row["FVG Low"] is not None else "—"
+            row["Retest Zone"] = row["Entry Zone"]
+            row["Retest Price"] = (
+                round((row["FVG Low"] + row["FVG High"]) / 2, 2)
+                if row["FVG Low"] is not None and row["FVG High"] is not None else None
+            )
+            row["Entry-TF CHoCH"] = "REPLACED BY 15M CISD"
+            row["LTF Liquidity"] = row["CRT Sweep"]
+            row["LTF MSS"] = row["15M CISD"]
+            rows.append(row)
         except Exception as exc:
-            errors[pair] = f"{type(exc).__name__}: {str(exc)[:180]}"
-            rows.append({
-                "HTF → LTF": pair, "HTF Liquidity": "ERROR", "HTF MSS": "—",
-                "LTF Liquidity": "ERROR", "LTF MSS": "—", "Entry Zone": "—",
-                "Retest Zone": "—", "Retest Price": None, "Entry Price": None, "Entry Time": None,
-                "Alignment": "DATA ERROR", "Entry Status": "WAIT", "Signal": "WAIT",
-                "HTF Close": None, "LTF Close": None, "HTF Candle": None, "LTF Candle": None,
-            })
+            errors[name] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            rows.append({"CRT Timeframe": name, "HTF → LTF": f"{name} → 15M CISD → 5M Entry",
+                         "CRT Sweep": "DATA ERROR", "15M CISD": "—",
+                         "5M Entry Status": "—", "Signal": "WAIT",
+                         "Alignment": "DATA ERROR", "Entry Status": "WAIT"})
     return pd.DataFrame(rows), errors
