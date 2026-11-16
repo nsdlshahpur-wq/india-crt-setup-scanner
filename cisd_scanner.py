@@ -201,7 +201,7 @@ def backtest_cisd(data_5m: pd.DataFrame, config: CISDConfig | None = None,
         if not setup:
             continue
         entry_i = int(setup["entry_index"])
-        bars = day.drop(columns="_session").iloc[entry_i + 1:]
+        bars = day.drop(columns="_session").iloc[entry_i:]
         entry = float(setup["entry"]) + (slippage_points_per_side if setup["side"] == "LONG" else -slippage_points_per_side)
         stop, target = float(setup["stop"]), float(setup["target"])
         exit_price, exit_time, result = None, None, "OPEN"
