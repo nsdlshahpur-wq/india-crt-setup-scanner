@@ -26,14 +26,9 @@ INSTRUMENTS = {
         "Silver Futures (SI=F)": {"provider": "Yahoo Finance Futures", "ticker": "SI=F", "unit": "USD per troy ounce"},
     },
     "Crypto Perpetual Futures": {
-        "Bitcoin USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "BTC/USDT:USDT", "unit": "USDT"},
-        "Ethereum USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "ETH/USDT:USDT", "unit": "USDT"},
-        "Solana USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "SOL/USDT:USDT", "unit": "USDT"},
-        "BNB USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "BNB/USDT:USDT", "unit": "USDT"},
-        "XRP USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "XRP/USDT:USDT", "unit": "USDT"},
-        "ADA USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "ADA/USDT:USDT", "unit": "USDT"},
-        "DOGE USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "DOGE/USDT:USDT", "unit": "USDT"},
-        "LTC USDT-M Perpetual": {"provider": "Binance USD-M Futures", "symbol": "LTC/USDT:USDT", "unit": "USDT"},
+        "Bitcoin Perpetual Futures (BTCUSD)": {"provider": "Delta Exchange India Public WebSocket", "underlying": "BTC", "unit": "USD"},
+        "Ethereum Perpetual Futures (ETHUSD)": {"provider": "Delta Exchange India Public WebSocket", "underlying": "ETH", "unit": "USD"},
+        "Solana Perpetual Futures": {"provider": "Delta Exchange India Public WebSocket", "underlying": "SOL", "unit": "USD"},
     },
     "FX Futures": {
         "Euro FX Futures (6E=F)": {"provider": "Yahoo Finance Futures", "ticker": "6E=F", "unit": "USD per EUR"},
@@ -175,7 +170,7 @@ def _fetch_delta_future(spec: dict) -> tuple[pd.DataFrame, dict]:
             {"name": "candlestick_5m", "symbols": [symbol]},
         ]}}))
         deadline = time.time() + 7
-        while time.time() < deadline and (live_ticker is None or live_candle is None):
+        while time.time() < deadline and live_candle is None:
             try:
                 raw = ws.recv()
             except websocket.WebSocketTimeoutException:
@@ -183,19 +178,23 @@ def _fetch_delta_future(spec: dict) -> tuple[pd.DataFrame, dict]:
             if not raw:
                 continue
             message = json.loads(raw)
-            if message.get("type") == "ticker" and message.get("sy") == symbol:
-                live_ticker = message
+            if message.get("type") == "ticker":
+                if message.get("sy") == symbol:
+                    live_ticker = message
+                for item in message.get("d", []):
+                    if item.get("s") == symbol:
+                        live_ticker = item | {"ts": message.get("ts")}
             elif message.get("type") == "candlestick_5m" and message.get("sy") == symbol:
                 live_candle = message
     finally:
         ws.close()
 
-    if live_ticker is None:
-        raise RuntimeError(f"Delta WebSocket par {symbol} ka live ticker nahi mila; REST history ko LIVE nahi dikhaya gaya.")
-    price = live_ticker.get("close") or live_ticker.get("last_price") or live_ticker.get("p")
+    if live_candle is None:
+        raise RuntimeError(f"Delta WebSocket par {symbol} ka live 5-minute candle update nahi mila; REST history ko LIVE nahi dikhaya gaya.")
+    price = live_candle.get("c") or (live_ticker.get("ohlc", [None, None, None, None])[3] if live_ticker else None)
     if price is None:
         raise RuntimeError(f"Delta live ticker response mein price field nahi mila: {symbol}")
-    event_ts = live_ticker.get("ts") or live_ticker.get("timestamp")
+    event_ts = live_candle.get("ts")
     if event_ts and float(event_ts) > 10**14:
         stamp = pd.to_datetime(int(event_ts), unit="us", utc=True)
     elif event_ts:
@@ -208,14 +207,14 @@ def _fetch_delta_future(spec: dict) -> tuple[pd.DataFrame, dict]:
         "display_name": symbol,
         "latest_price": float(price),
         "latest_timestamp": str(stamp),
-        "quote_interval": "LIVE WebSocket ticker snapshot",
+        "quote_interval": "LIVE WebSocket 5-minute candle update",
         "history_rows": int(len(frame)),
         "history_start": str(frame.index.min()),
         "history_end": str(frame.index.max()),
         "history_interval": "5-minute REST OHLC history",
         "unit": spec["unit"],
-        "live_candle_received": live_candle is not None,
-        "note": "Live ticker verified over Delta public WebSocket. 5-minute strategy history comes from Delta REST OHLC; incomplete live candle is not inserted into closed-candle backtest. No API key or trading permission is used.",
+        "live_candle_received": True,
+        "note": "Live 5-minute candle update verified over Delta public WebSocket. 5-minute strategy history comes from Delta REST OHLC; incomplete live candle is not inserted into closed-candle backtest. No API key or trading permission is used.",
     }
     return frame, report
 
