@@ -396,12 +396,12 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
             exit_price, exit_time, result, target = None, None, "EOD", target3
             for ts, bar in future.iterrows():
                 stop_hit = float(bar.Low) <= stop if direction == 1 else float(bar.High) >= stop
-                hit3 = float(bar.High) >= target3 if direction == 1 else float(bar.Low) <= target3
+                hit3 = float(bar.High) >= target if direction == 1 else float(bar.Low) <= target
                 if stop_hit:
                     exit_price, exit_time, result = stop, ts, "SL"
                     break
                 if hit3:
-                    exit_price, exit_time, result = target3, ts, "TP 3R"
+                    exit_price, exit_time, result = target3, ts, f"TP {cfg.rr:g}R"
                     break
                 if ts.date() != entry_time.date():
                     break
