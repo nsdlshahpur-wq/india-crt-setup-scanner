@@ -356,15 +356,23 @@ def _zone_candidates(data: pd.DataFrame, direction: int, cisd_time: pd.Timestamp
     zones: list[dict] = []
     if len(data) < 4:
         return zones
-    # Three-candle FVGs.
+    # Detect both bullish and bearish three-candle gaps; only aligned FVGs
+    # qualify directly, while opposite gaps may become IFVG after invalidation.
+    all_fvgs = []
     for i in range(2, len(data)):
-        left, middle, right = data.iloc[i - 2], data.iloc[i - 1], data.iloc[i]
-        if direction == 1 and float(right.Low) > float(left.High):
-            zones.append({"type": "FVG", "low": float(left.High), "high": float(right.Low),
-                          "formed_i": i, "direction": direction})
-        elif direction == -1 and float(right.High) < float(left.Low):
-            zones.append({"type": "FVG", "low": float(right.High), "high": float(left.Low),
-                          "formed_i": i, "direction": direction})
+        left, right = data.iloc[i - 2], data.iloc[i]
+        if float(right.Low) > float(left.High):
+            gap = {"type": "FVG", "low": float(left.High), "high": float(right.Low),
+                   "formed_i": i, "direction": 1}
+            all_fvgs.append(gap)
+            if direction == 1:
+                zones.append(gap.copy())
+        elif float(right.High) < float(left.Low):
+            gap = {"type": "FVG", "low": float(right.High), "high": float(left.Low),
+                   "formed_i": i, "direction": -1}
+            all_fvgs.append(gap)
+            if direction == -1:
+                zones.append(gap.copy())
     # Order blocks and body-refined advanced order blocks.
     for i in range(1, len(data)):
         bar = data.iloc[i]
@@ -384,8 +392,9 @@ def _zone_candidates(data: pd.DataFrame, direction: int, cisd_time: pd.Timestamp
                 zones.append({"type": "Advanced OB", "low": lo, "high": hi,
                               "formed_i": i, "direction": direction})
     # Convert invalidated opposite FVGs into IFVGs.
-    raw_fvgs = [z.copy() for z in zones if z["type"] == "FVG"]
-    for z in raw_fvgs:
+    for z in all_fvgs:
+        if z["direction"] == direction:
+            continue
         for i in range(z["formed_i"] + 1, len(data)):
             bar = data.iloc[i]
             invalidated = (float(bar.Close) > z["high"] if direction == 1
