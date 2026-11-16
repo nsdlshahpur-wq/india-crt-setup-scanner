@@ -1,7 +1,7 @@
 """Multi-asset CISD scanner using futures market data only.
 
 Metals, US index and FX: Yahoo Finance continuous futures symbols (=F).
-Crypto: Binance USD-M perpetual futures through CCXT (not spot, not options).
+Crypto: Delta Exchange India perpetual futures through public WebSocket + REST history (not spot, not options).
 No Deriv options endpoints are used. No orders are placed.
 """
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
-import ccxt
 import pandas as pd
 import yfinance as yf
 import requests
@@ -217,44 +216,6 @@ def _fetch_delta_future(spec: dict) -> tuple[pd.DataFrame, dict]:
         "note": "Live 5-minute candle update verified over Delta public WebSocket. 5-minute strategy history comes from Delta REST OHLC; incomplete live candle is not inserted into closed-candle backtest. No API key or trading permission is used.",
     }
     return frame, report
-
-
-def _fetch_crypto_future(spec: dict) -> tuple[pd.DataFrame, dict]:
-    symbol = spec["symbol"]
-    exchange = ccxt.binanceusdm({"enableRateLimit": True, "timeout": 20000})
-    try:
-        markets = exchange.load_markets()
-        market = markets.get(symbol)
-        if not market or not (market.get("swap") or market.get("future")):
-            raise RuntimeError(f"{symbol} Binance USD-M futures market mein listed nahi mila.")
-        candles = exchange.fetch_ohlcv(symbol, timeframe="5m", limit=500)
-        ticker = exchange.fetch_ticker(symbol)
-        if not candles:
-            raise RuntimeError(f"{symbol} ka futures 5-minute OHLCV data nahi mila.")
-        frame = pd.DataFrame(candles, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"])
-        frame["Timestamp"] = pd.to_datetime(frame["timestamp"], unit="ms", utc=True)
-        frame = frame.set_index("Timestamp")[["Open", "High", "Low", "Close"]]
-        frame = _clean_ohlc(frame)
-        report = {
-            "provider": "Binance USD-M Futures via CCXT",
-            "ticker": symbol,
-            "display_name": symbol,
-            "latest_price": float(ticker["last"]),
-            "latest_timestamp": str(pd.to_datetime(ticker.get("timestamp"), unit="ms", utc=True)) if ticker.get("timestamp") else str(frame.index[-1]),
-            "quote_interval": "latest Binance USD-M futures ticker",
-            "history_rows": int(len(frame)),
-            "history_start": str(frame.index.min()),
-            "history_end": str(frame.index.max()),
-            "history_interval": "5-minute",
-            "unit": spec["unit"],
-            "note": "Binance USDT-margined perpetual futures market data, not spot and not options. Exchange price may differ from other venues.",
-        }
-        return frame, report
-    finally:
-        try:
-            exchange.close()
-        except Exception:
-            pass
 
 
 def fetch_market_data(category: str, instrument: str) -> tuple[pd.DataFrame, dict]:
