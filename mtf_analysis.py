@@ -13,15 +13,22 @@ from scanner import (
 )
 
 PAIR_SPECS = [
-    {"HTF": "Monthly", "LTF": "Daily", "htf_period": "10y", "htf_interval": "1mo",
-     "ltf_period": "2y", "ltf_interval": "1d"},
-    {"HTF": "Weekly", "LTF": "4H", "htf_period": "5y", "htf_interval": "1wk",
-     "ltf_period": "60d", "ltf_interval": "60m", "ltf_resample": "4h"},
-    {"HTF": "Daily", "LTF": "1H", "htf_period": "2y", "htf_interval": "1d",
-     "ltf_period": "60d", "ltf_interval": "60m"},
-    {"HTF": "4H", "LTF": "5m", "htf_period": "60d", "htf_interval": "60m",
+    # Each CRT timeframe is checked independently for both requested entry timeframes.
+    {"HTF": "1H", "LTF": "15M", "htf_period": "60d", "htf_interval": "60m",
+     "ltf_period": "60d", "ltf_interval": "15m"},
+    {"HTF": "1H", "LTF": "5M", "htf_period": "60d", "htf_interval": "60m",
+     "ltf_period": "60d", "ltf_interval": "5m"},
+    {"HTF": "4H", "LTF": "15M", "htf_period": "60d", "htf_interval": "60m",
+     "htf_resample": "4h", "ltf_period": "60d", "ltf_interval": "15m"},
+    {"HTF": "4H", "LTF": "5M", "htf_period": "60d", "htf_interval": "60m",
      "htf_resample": "4h", "ltf_period": "60d", "ltf_interval": "5m"},
-    {"HTF": "1H", "LTF": "5m", "htf_period": "60d", "htf_interval": "60m",
+    {"HTF": "Daily", "LTF": "15M", "htf_period": "2y", "htf_interval": "1d",
+     "ltf_period": "60d", "ltf_interval": "15m"},
+    {"HTF": "Daily", "LTF": "5M", "htf_period": "2y", "htf_interval": "1d",
+     "ltf_period": "60d", "ltf_interval": "5m"},
+    {"HTF": "Weekly", "LTF": "15M", "htf_period": "5y", "htf_interval": "1wk",
+     "ltf_period": "60d", "ltf_interval": "15m"},
+    {"HTF": "Weekly", "LTF": "5M", "htf_period": "5y", "htf_interval": "1wk",
      "ltf_period": "60d", "ltf_interval": "5m"},
 ]
 
