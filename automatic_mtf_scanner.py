@@ -102,7 +102,7 @@ def main() -> int:
                 signal = str(record.get("Signal", "WAIT"))
                 if signal not in {"BULL ORDER", "BEAR ORDER", "BUY", "SELL"}:
                     continue
-                candle = str(record.get("LTF Candle", ""))
+                candle = str(record.get("Entry Time", record.get("LTF Candle", "")))
                 key = f"{symbol}|{record.get('HTF → LTF')}|{signal}|{candle}"
                 if key in seen:
                     continue
@@ -112,9 +112,9 @@ def main() -> int:
                     "name": name,
                     "pair": record.get("HTF → LTF", ""),
                     "signal": "BUY" if signal in {"BULL ORDER", "BUY"} else "SELL",
-                    "liquidity": record.get("LTF Liquidity", ""),
-                    "choch": record.get("LTF MSS", ""),
-                    "zone": record.get("Retest Zone", record.get("Entry Zone", "")),
+                    "liquidity": record.get("CRT Sweep", record.get("LTF Liquidity", "")),
+                    "choch": record.get("15M CISD", record.get("LTF MSS", "")),
+                    "zone": record.get("5M Entry Status", record.get("Retest Zone", record.get("Entry Zone", ""))),
                     "entry": record.get("Entry Price"),
                     "candle": candle,
                 })
@@ -126,7 +126,7 @@ def main() -> int:
         "LTF Liquidity", "LTF MSS", "Entry Zone", "Retest Zone",
         "Retest Price", "Entry Price", "Entry Time", "Alignment",
         "Entry Status", "Signal", "HTF Close", "LTF Close",
-        "HTF Candle", "LTF Candle",
+        "HTF Candle", "LTF Candle", "CRT Timeframe", "CRT Sweep", "15M CISD",\n        "5M Entry Status", "Stop Loss", "Target 1 (2R)", "Target 2 (3R)", "RR",
     ]
     pd.DataFrame(rows, columns=columns).to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
     if errors:
