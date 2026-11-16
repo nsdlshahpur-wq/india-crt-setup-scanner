@@ -12,6 +12,10 @@ from typing import Any
 import ccxt
 import pandas as pd
 import yfinance as yf
+import requests
+import json
+import time
+import websocket
 
 from cisd_scanner import CISDConfig, backtest_cisd, find_day_setup
 
@@ -112,6 +116,110 @@ def _fetch_yahoo_future(spec: dict) -> tuple[pd.DataFrame, dict]:
     return frame, report
 
 
+
+def _delta_product_symbol(underlying: str) -> str:
+    """Resolve an active Delta India perpetual futures symbol from its public catalogue."""
+    response = requests.get(
+        "https://api.india.delta.exchange/v2/products",
+        params={"contract_types": "perpetual_futures", "underlying_asset_symbols": underlying, "page_size": 200},
+        headers={"Accept": "application/json", "User-Agent": "CRT-Scanner/1.0"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("success") or not isinstance(payload.get("result"), list):
+        raise RuntimeError(f"Delta product catalogue returned an unexpected response for {underlying}.")
+    for product in payload["result"]:
+        asset = product.get("underlying_asset") or {}
+        asset_symbol = asset.get("symbol") if isinstance(asset, dict) else None
+        asset_symbol = asset_symbol or product.get("underlying_asset_symbol") or ""
+        if asset_symbol.upper() == underlying.upper() and product.get("contract_type") == "perpetual_futures" and product.get("state", "live") == "live":
+            return str(product["symbol"])
+    raise RuntimeError(f"Delta India par {underlying} ka active perpetual-futures contract nahi mila.")
+
+
+def _fetch_delta_future(spec: dict) -> tuple[pd.DataFrame, dict]:
+    """Fetch 5m history via public REST and verify a current public WebSocket ticker."""
+    symbol = _delta_product_symbol(spec["underlying"])
+    now = int(time.time())
+    response = requests.get(
+        "https://api.india.delta.exchange/v2/history/candles",
+        params={"resolution": "5m", "symbol": symbol, "start": now - 5 * 86400, "end": now},
+        headers={"Accept": "application/json", "User-Agent": "CRT-Scanner/1.0"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("success") or not payload.get("result"):
+        raise RuntimeError(f"Delta historical 5-minute candles unavailable for {symbol}.")
+    frame = pd.DataFrame(payload["result"]).rename(
+        columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "time": "Timestamp"}
+    )
+    if "Timestamp" not in frame.columns:
+        raise RuntimeError(f"Delta candle response has no timestamp for {symbol}.")
+    frame["Timestamp"] = pd.to_datetime(frame["Timestamp"], unit="s", utc=True)
+    frame = frame.set_index("Timestamp")[["Open", "High", "Low", "Close"]]
+    frame = _clean_ohlc(frame)
+    if frame.empty:
+        raise RuntimeError(f"Delta returned no valid 5-minute OHLC candles for {symbol}.")
+
+    # Public market-data channels do not require API credentials.
+    ws = websocket.create_connection(
+        "wss://public-socket.india.delta.exchange", timeout=8, enable_multithread=True
+    )
+    live_ticker = None
+    live_candle = None
+    try:
+        ws.send(json.dumps({"type": "subscribe", "payload": {"channels": [
+            {"name": "ticker", "symbols": [symbol]},
+            {"name": "candlestick_5m", "symbols": [symbol]},
+        ]}}))
+        deadline = time.time() + 7
+        while time.time() < deadline and (live_ticker is None or live_candle is None):
+            try:
+                raw = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                break
+            if not raw:
+                continue
+            message = json.loads(raw)
+            if message.get("type") == "ticker" and message.get("sy") == symbol:
+                live_ticker = message
+            elif message.get("type") == "candlestick_5m" and message.get("sy") == symbol:
+                live_candle = message
+    finally:
+        ws.close()
+
+    if live_ticker is None:
+        raise RuntimeError(f"Delta WebSocket par {symbol} ka live ticker nahi mila; REST history ko LIVE nahi dikhaya gaya.")
+    price = live_ticker.get("close") or live_ticker.get("last_price") or live_ticker.get("p")
+    if price is None:
+        raise RuntimeError(f"Delta live ticker response mein price field nahi mila: {symbol}")
+    event_ts = live_ticker.get("ts") or live_ticker.get("timestamp")
+    if event_ts and float(event_ts) > 10**14:
+        stamp = pd.to_datetime(int(event_ts), unit="us", utc=True)
+    elif event_ts:
+        stamp = pd.to_datetime(int(event_ts), unit="ms", utc=True)
+    else:
+        stamp = pd.Timestamp.now(tz="UTC")
+    report = {
+        "provider": "Delta Exchange India Public WebSocket + REST history",
+        "ticker": symbol,
+        "display_name": symbol,
+        "latest_price": float(price),
+        "latest_timestamp": str(stamp),
+        "quote_interval": "LIVE WebSocket ticker snapshot",
+        "history_rows": int(len(frame)),
+        "history_start": str(frame.index.min()),
+        "history_end": str(frame.index.max()),
+        "history_interval": "5-minute REST OHLC history",
+        "unit": spec["unit"],
+        "live_candle_received": live_candle is not None,
+        "note": "Live ticker verified over Delta public WebSocket. 5-minute strategy history comes from Delta REST OHLC; incomplete live candle is not inserted into closed-candle backtest. No API key or trading permission is used.",
+    }
+    return frame, report
+
+
 def _fetch_crypto_future(spec: dict) -> tuple[pd.DataFrame, dict]:
     symbol = spec["symbol"]
     exchange = ccxt.binanceusdm({"enableRateLimit": True, "timeout": 20000})
@@ -157,7 +265,7 @@ def fetch_market_data(category: str, instrument: str) -> tuple[pd.DataFrame, dic
     except KeyError as exc:
         raise ValueError("Selected futures market/pair list mein nahi hai.") from exc
     if category == "Crypto Perpetual Futures":
-        return _fetch_crypto_future(spec)
+        return _fetch_delta_future(spec)
     return _fetch_yahoo_future(spec)
 
 
