@@ -7,7 +7,7 @@ def test_registry_routes_only_expected_futures_markets():
     assert FEED_REGISTRY["GOLD"].instrument_type == "COMEX Gold futures"
     assert FEED_REGISTRY["SILVER"].instrument_type == "COMEX Silver futures"
     assert FEED_REGISTRY["US30"].instrument_type == "E-mini Dow futures (YM)"
-    assert FEED_REGISTRY["BTC"].instrument_type == "USDT-M perpetual futures"
+    assert FEED_REGISTRY["BTC"].instrument_type == "Perpetual futures"
 
 
 def test_feed_health_marks_recent_timestamp_fresh():
