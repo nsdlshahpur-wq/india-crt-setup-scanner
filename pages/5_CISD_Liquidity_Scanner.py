@@ -9,12 +9,12 @@ from nifty50_history import load_full_nifty50_1m
 
 st.set_page_config(page_title="NIFTY 50 CRT + CISD Scanner", page_icon="🎯", layout="wide")
 st.title("🎯 NIFTY 50 — CRT + CISD Liquidity Scanner")
-st.caption("REPLACEMENT STRATEGY: Weekly / Daily / 4H / 1H CRT → 15M CISD → 5M FVG Retest → Entry")
+st.caption("CRT MTF ALIGNMENT: 1H→5M · 4H→15M · Daily→30M · Weekly→1H | Zones: FVG / IFVG / OB / Advanced OB")
 
 st.warning(
     "पुराना केवल Previous-Day Liquidity Sweep → CISD → FVG मॉडल हटा दिया गया है। "
-    "अब CRT की M1 range को M2 candle द्वारा केवल एक तरफ sweep करके M1 range के अंदर close करना होगा। "
-    "उसके बाद 15M पर body-close CISD और 5M पर नया FVG बनकर retest होना जरूरी है। "
+    "अब हर CRT की अपनी Entry Timeframe है: 1H→5M, 4H→15M, Daily→30M, Weekly→1H। "
+    "CISD उसी mapped timeframe पर confirm होगा। इसके बाद FVG, IFVG, OB या Advanced OB में से किसी एक valid zone का retest और rejection entry trigger होगा। "
     "Scanner केवल research/backtest करता है; broker order place नहीं करता।"
 )
 
@@ -29,10 +29,8 @@ with st.sidebar:
     force_refresh = st.checkbox("Force refresh historical data", value=False)
 
 st.markdown(
-    "**Entry sequence:** (1) CRT M1/M2 sweep-and-reclaim on 1H, 4H, Daily or Weekly; "
-    "(2) wait until M2 closes; (3) 15M candle body closes across CISD line; "
-    "(4) 5M three-candle FVG forms after CISD; (5) later 5M candle retests FVG and rejects; "
-    "(6) entry at next 5M candle open. SL is beyond M2 sweep extreme plus buffer. "
+    "**Entry sequence:** CRT M1/M2 sweep-and-reclaim; then mapped timeframe CISD body-close; then wait for retest/rejection in ANY one of FVG, IFVG, OB or Advanced OB; entry at next candle open on that mapped timeframe. "
+    "Mapping: 1H CRT→5M, 4H CRT→15M, Daily CRT→30M, Weekly CRT→1H. SL is beyond CRT M2 sweep extreme plus buffer. "
     "Both 2R and 3R levels are shown; selected R controls the backtest exit."
 )
 
@@ -47,7 +45,7 @@ if st.button("Load historical data → build 5M / 15M bars → CRT + CISD backte
             st.stop()
         cfg = CISDConfig(rr=float(rr), stop_buffer_points=float(stop_buffer),
                          one_trade_per_day=True)
-        with st.spinner("Running no-look-ahead CRT → 15M CISD → 5M FVG backtest..."):
+        with st.spinner("Running no-look-ahead CRT → mapped CISD → FVG/IFVG/OB/Advanced OB retest backtest..."):
             trades, metrics = backtest_crt_cisd(
                 five_min, cfg, slippage_points_per_side=float(slippage)
             )
@@ -72,7 +70,7 @@ if "cisd_5m_data" in st.session_state:
     st.subheader("Historical CRT + CISD backtest")
     st.caption(
         f"Bars: {len(data):,} · Data: {data.index.min()} to {data.index.max()} · "
-        f"CRT: 1H / 4H / Daily / Weekly · CISD: 15M · Entry: 5M · "
+        f"CRT/Entry: 1H→5M / 4H→15M / Daily→30M / Weekly→1H · Zones: FVG/IFVG/OB/Advanced OB · "
         f"Target: 1:{cfg_values.get('rr', 3)}R"
     )
     cols = st.columns(5)
@@ -122,8 +120,8 @@ if "cisd_5m_data" in st.session_state:
             f"2R {latest['target_1_2R']:.2f} · 3R {latest['target_2_3R']:.2f}"
         )
         st.write(
-            f"15M CISD line: {latest['cisd_line']:.2f} · "
-            f"5M FVG: {latest['fvg_low']:.2f}–{latest['fvg_high']:.2f} · "
+            f"{latest['CISD timeframe']} CISD line: {latest['cisd_line']:.2f} · "
+            f"{latest['zone_type']}: {latest['zone_low']:.2f}–{latest['zone_high']:.2f} · "
             f"Sweep extreme: {latest['sweep_extreme']:.2f}"
         )
         st.caption(f"Signal: {latest['signal_time']} · Entry: {latest['entry_time']}")
