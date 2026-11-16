@@ -17,7 +17,7 @@ st.info(
     "Crypto: Binance USD-M perpetual futures via CCXT. Options aur spot-market fallback disabled."
 )
 st.warning(
-    "Yahoo futures quotes delayed ho sakte hain. Crypto contracts perpetual futures hain, dated delivery futures nahi. "
+    "Yahoo futures quotes delayed ho sakte hain. Delta Crypto ticker WebSocket se verify hota hai; 5-minute history REST se aati hai. Crypto contracts perpetual futures hain, dated delivery futures nahi. "
     "US30 ke liye YM=F E-mini Dow futures proxy hai, broker CFD nahi. Scanner sirf data padhta hai, orders place nahi karta."
 )
 
