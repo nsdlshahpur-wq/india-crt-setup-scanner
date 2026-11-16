@@ -8,10 +8,7 @@ def test_parse_dhan_ticker_packet():
     ltt = int(datetime(2026, 11, 16, 10, 0, tzinfo=timezone.utc).timestamp())
     packet = bytearray(17)
     packet[0] = 2
-    packet[4] = 5
-    struct.pack_into("<I", packet, 5, 12345)
-    struct.pack_into("<f", packet, 9, 98765.5)
-    struct.pack_into("<I", packet, 13, ltt)
+    struct.pack_into("<BHBIfI", packet, 0, 2, 16, 5, 12345, 98765.5, ltt)
     parsed = parse_dhan_ticker_packet(bytes(packet))
     assert parsed is not None
     assert parsed["security_id"] == "12345"
