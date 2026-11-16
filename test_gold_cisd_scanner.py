@@ -6,17 +6,13 @@ from gold_cisd_scanner import INSTRUMENTS, load_gold_ohlc_csv
 
 def test_supported_markets_are_not_equities():
     assert set(INSTRUMENTS) == {"Metals", "Crypto", "Forex", "Indices / Futures"}
-    tickers = {
-        spec["ticker"]
-        for group in INSTRUMENTS.values()
-        for spec in group.values()
-    }
-    assert "XAUUSD=X" in tickers
-    assert "XAGUSD=X" in tickers
-    assert "BTC-USD" in tickers
-    assert "ETH-USD" in tickers
-    assert "SOL-USD" in tickers
-    assert "YM=F" in tickers
+    assert INSTRUMENTS["Metals"]["Gold (XAUUSD)"]["provider"] == "Deriv"
+    assert INSTRUMENTS["Metals"]["Silver (XAGUSD)"]["provider"] == "Deriv"
+    assert INSTRUMENTS["Crypto"]["Bitcoin (BTCUSD)"]["symbol"] == "BTC/USDT"
+    assert INSTRUMENTS["Crypto"]["Ethereum (ETHUSD)"]["symbol"] == "ETH/USDT"
+    assert INSTRUMENTS["Crypto"]["Solana (SOLUSD)"]["symbol"] == "SOL/USDT"
+    assert INSTRUMENTS["Forex"]["EURUSD"]["provider"] == "Deriv"
+    assert INSTRUMENTS["Indices / Futures"]["US30"]["provider"] == "Deriv"
 
 
 def test_load_tradingview_style_csv():
