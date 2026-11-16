@@ -271,12 +271,11 @@ def backtest_cisd(data_5m: pd.DataFrame, config: CISDConfig | None = None,
 # Replacement strategy: multi-timeframe CRT -> 15M CISD -> 5M FVG retest.
 # The former standalone prior-day-liquidity-only entry model is superseded.
 CRT_MODELS = [
-    {"name": "1H", "rule": "1h", "duration": pd.Timedelta(hours=1)},
-    {"name": "4H", "rule": "4h", "duration": pd.Timedelta(hours=4)},
-    {"name": "Daily", "rule": "1D", "duration": pd.Timedelta(days=1)},
-    {"name": "Weekly", "rule": "W-FRI", "duration": pd.Timedelta(days=7)},
+    {"name": "1H", "rule": "1h", "duration": pd.Timedelta(hours=1), "entry_rule": "5min", "entry_label": "5M"},
+    {"name": "4H", "rule": "4h", "duration": pd.Timedelta(hours=4), "entry_rule": "15min", "entry_label": "15M"},
+    {"name": "Daily", "rule": "1D", "duration": pd.Timedelta(days=1), "entry_rule": "30min", "entry_label": "30M"},
+    {"name": "Weekly", "rule": "W-FRI", "duration": pd.Timedelta(days=7), "entry_rule": "1h", "entry_label": "1H"},
 ]
-
 
 def _resample_crt_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
     frame = five.copy().sort_index()
@@ -303,9 +302,29 @@ def _resample_crt_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
         {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
 
 
-def _cisd_after_sweep(m15: pd.DataFrame, start_time: pd.Timestamp,
+
+def _resample_entry_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Build NSE-session-aligned entry candles from 5-minute source bars."""
+    if rule == "5min":
+        return five.copy()
+    parts = []
+    for _, session in five.groupby(five.index.date):
+        bars = session.resample(rule, origin="start_day", offset="15min",
+                                label="left", closed="left").agg(
+            {"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+        bars = bars.dropna()
+        # Exclude any incomplete final candle.
+        last_complete = session.index.max() + pd.Timedelta(minutes=5)
+        bars = bars[[ts + pd.Timedelta(rule) <= last_complete for ts in bars.index]]
+        parts.append(bars)
+    return pd.concat(parts).sort_index() if parts else pd.DataFrame(
+        columns=["Open", "High", "Low", "Close"])
+
+
+def _cisd_after_sweep(entry_bars: pd.DataFrame, start_time: pd.Timestamp,
                       direction: int) -> tuple[int, pd.Timestamp, float] | None:
-    data = m15[m15.index >= start_time]
+    """CISD body-close confirmation on the CRT model's mapped entry timeframe."""
+    data = entry_bars[entry_bars.index >= start_time]
     for i in range(1, len(data)):
         row = data.iloc[i]
         if direction == 1 and _is_bull(row) and _is_bear(data.iloc[i - 1]):
@@ -325,30 +344,83 @@ def _cisd_after_sweep(m15: pd.DataFrame, start_time: pd.Timestamp,
     return None
 
 
-def _entry_after_cisd(five: pd.DataFrame, cisd_time: pd.Timestamp,
+def _zone_candidates(data: pd.DataFrame, direction: int, cisd_time: pd.Timestamp) -> list[dict]:
+    """Create post-CISD FVG, IFVG, OB and refined Advanced-OB zones.
+
+    OB = last opposite-colour candle before a directional displacement.
+    Advanced OB = the body-refined portion of that same OB.
+    IFVG = an FVG invalidated by a body close through its far boundary,
+    then treated as support/resistance on a subsequent retest.
+    """
+    data = data[data.index >= (pd.Timestamp(cisd_time) + pd.Timedelta(minutes=1))]
+    zones: list[dict] = []
+    if len(data) < 4:
+        return zones
+    # Three-candle FVGs.
+    for i in range(2, len(data)):
+        left, middle, right = data.iloc[i - 2], data.iloc[i - 1], data.iloc[i]
+        if direction == 1 and float(right.Low) > float(left.High):
+            zones.append({"type": "FVG", "low": float(left.High), "high": float(right.Low),
+                          "formed_i": i, "direction": direction})
+        elif direction == -1 and float(right.High) < float(left.Low):
+            zones.append({"type": "FVG", "low": float(right.High), "high": float(left.Low),
+                          "formed_i": i, "direction": direction})
+    # Order blocks and body-refined advanced order blocks.
+    for i in range(1, len(data)):
+        bar = data.iloc[i]
+        prior = data.iloc[i - 1]
+        body = abs(float(bar.Close) - float(bar.Open))
+        avg_range = (data.High - data.Low).rolling(10, min_periods=3).mean().iloc[i]
+        displacement = body >= (float(avg_range) if pd.notna(avg_range) else 0)
+        directional = _is_bull(bar) if direction == 1 else _is_bear(bar)
+        opposite = _is_bear(prior) if direction == 1 else _is_bull(prior)
+        if displacement and directional and opposite:
+            lo = min(float(prior.Open), float(prior.Close))
+            hi = max(float(prior.Open), float(prior.Close))
+            wick_lo, wick_hi = float(prior.Low), float(prior.High)
+            zones.append({"type": "OB", "low": wick_lo, "high": wick_hi,
+                          "formed_i": i, "direction": direction})
+            if hi > lo:
+                zones.append({"type": "Advanced OB", "low": lo, "high": hi,
+                              "formed_i": i, "direction": direction})
+    # Convert invalidated opposite FVGs into IFVGs.
+    raw_fvgs = [z.copy() for z in zones if z["type"] == "FVG"]
+    for z in raw_fvgs:
+        for i in range(z["formed_i"] + 1, len(data)):
+            bar = data.iloc[i]
+            invalidated = (float(bar.Close) > z["high"] if direction == 1
+                           else float(bar.Close) < z["low"])
+            if invalidated:
+                zones.append({"type": "IFVG", "low": z["low"], "high": z["high"],
+                              "formed_i": i, "direction": direction})
+                break
+    return [z for z in zones if z["high"] > z["low"]]
+
+
+def _entry_after_cisd(entry_bars: pd.DataFrame, cisd_time: pd.Timestamp,
                       direction: int) -> dict[str, Any] | None:
-    data = five[five.index >= (pd.Timestamp(cisd_time) + pd.Timedelta(minutes=15))]
-    if len(data) < 5:
+    """Entry on the first valid retest of ANY enabled FVG/IFVG/OB/Advanced OB."""
+    data = entry_bars[entry_bars.index > pd.Timestamp(cisd_time)]
+    if len(data) < 4:
         return None
-    # FVG forms after the confirmed CISD; then wait for a later rejection retest.
-    for i in range(2, len(data) - 1):
-        a, c = data.iloc[i - 2], data.iloc[i]
-        if direction == 1 and float(c.Low) > float(a.High):
-            zlo, zhi = float(a.High), float(c.Low)
-        elif direction == -1 and float(c.High) < float(a.Low):
-            zlo, zhi = float(c.High), float(a.Low)
-        else:
-            continue
-        for j in range(i + 1, len(data) - 1):
+    zones = _zone_candidates(data, direction, data.index[0] - pd.Timedelta(minutes=1))
+    candidates = []
+    for zone in zones:
+        for j in range(zone["formed_i"] + 1, len(data) - 1):
             bar = data.iloc[j]
-            touched = float(bar.Low) <= zhi and float(bar.High) >= zlo
-            reject = (_is_bull(bar) and float(bar.Close) > zlo) if direction == 1 else (
-                _is_bear(bar) and float(bar.Close) < zhi)
-            if touched and reject:
-                nxt = data.iloc[j + 1]
-                return {"entry": float(nxt.Open), "entry_time": data.index[j + 1],
-                        "signal_time": data.index[j], "fvg_low": zlo, "fvg_high": zhi}
-    return None
+            touched = float(bar.Low) <= zone["high"] and float(bar.High) >= zone["low"]
+            rejected = (_is_bull(bar) and float(bar.Close) > zone["low"]) if direction == 1 else (
+                _is_bear(bar) and float(bar.Close) < zone["high"])
+            if touched and rejected:
+                candidates.append((j, zone))
+                break
+    if not candidates:
+        return None
+    j, zone = min(candidates, key=lambda item: item[0])
+    nxt = data.iloc[j + 1]
+    return {"entry": float(nxt.Open), "entry_time": data.index[j + 1],
+            "signal_time": data.index[j], "zone_type": zone["type"],
+            "zone_low": zone["low"], "zone_high": zone["high"]}
 
 
 def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
@@ -356,12 +428,6 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
     """Backtest four CRT models with sequential 15M CISD and 5M FVG retest."""
     cfg = config or CISDConfig()
     five = five.dropna(subset=["Open", "High", "Low", "Close"]).sort_index()
-    m15 = five.resample("15min", origin="start_day", offset="15min",
-                        label="left", closed="left").agg(
-        {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
-    if not m15.empty:
-        last_complete = five.index.max() + pd.Timedelta(minutes=5)
-        m15 = m15[[ts + pd.Timedelta(minutes=15) <= last_complete for ts in m15.index]]
     rows = []
     for model in CRT_MODELS:
         crt = _resample_crt_bars(five, model["rule"])
@@ -380,11 +446,12 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                 continue
             m2_start = pd.Timestamp(crt.index[k])
             m2_end = m2_start + model["duration"]
-            cisd = _cisd_after_sweep(m15, m2_end, direction)
+            entry_bars = _resample_entry_bars(five, model["entry_rule"])
+            cisd = _cisd_after_sweep(entry_bars, m2_end, direction)
             if cisd is None:
                 continue
             _, cisd_time, cisd_line = cisd
-            entry_setup = _entry_after_cisd(five, cisd_time, direction)
+            entry_setup = _entry_after_cisd(entry_bars, cisd_time, direction)
             if not entry_setup:
                 continue
             entry = float(entry_setup["entry"]) + (slippage_points_per_side if direction == 1 else -slippage_points_per_side)
@@ -395,12 +462,13 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                 continue
             target2 = entry + direction * 2 * risk
             target3 = entry + direction * 3 * risk
+            selected_target = entry + direction * cfg.rr * risk
             entry_time = pd.Timestamp(entry_setup["entry_time"])
             session_key = entry_time.date()
             if cfg.one_trade_per_day and session_key in used_sessions:
                 continue
-            future = five[five.index >= entry_time]
-            exit_price, exit_time, result, target = None, None, "EOD", target3
+            future = entry_bars[entry_bars.index >= entry_time]
+            exit_price, exit_time, result, target = None, None, "EOD", selected_target
             for ts, bar in future.iterrows():
                 stop_hit = float(bar.Low) <= stop if direction == 1 else float(bar.High) >= stop
                 hit3 = float(bar.High) >= target if direction == 1 else float(bar.Low) <= target
@@ -408,7 +476,7 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                     exit_price, exit_time, result = stop, ts, "SL"
                     break
                 if hit3:
-                    exit_price, exit_time, result = target3, ts, f"TP {cfg.rr:g}R"
+                    exit_price, exit_time, result = target, ts, f"TP {cfg.rr:g}R"
                     break
                 if ts.date() != entry_time.date():
                     break
@@ -423,8 +491,9 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                 "CRT M1 high": hi, "CRT M1 low": lo,
                 "CRT M2 high": float(m2.High), "CRT M2 low": float(m2.Low),
                 "sweep_extreme": extreme, "cisd_line": cisd_line,
-                "cisd_time": cisd_time, "fvg_low": entry_setup["fvg_low"],
-                "fvg_high": entry_setup["fvg_high"], "entry_time": entry_time,
+                "CISD timeframe": model["entry_label"], "zone_type": entry_setup["zone_type"],
+                "zone_low": entry_setup["zone_low"], "zone_high": entry_setup["zone_high"],
+                "cisd_time": cisd_time, "entry_time": entry_time,
                 "entry": entry, "stop_loss": stop, "target_1_2R": target2,
                 "target_2_3R": target3, "exit_time": exit_time,
                 "exit": exit_price, "result": result, "gross_points": gross,
