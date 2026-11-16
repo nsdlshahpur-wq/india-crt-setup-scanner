@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from mtf_analysis import PAIR_SPECS, analyze_mtf_symbol\nfrom dhan_live import fetch_dhan_live_ticker
+from mtf_analysis import PAIR_SPECS, analyze_mtf_symbol
 
 st.set_page_config(page_title="Multi-Timeframe CRT + CISD Entry", page_icon="🎯", layout="wide")
 st.title("🎯 Multi-Timeframe CRT + CISD Entry Scanner")
