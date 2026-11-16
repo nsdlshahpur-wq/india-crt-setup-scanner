@@ -23,8 +23,8 @@ class FeedSpec:
 
 FEED_REGISTRY = {\n    "MCX_GOLD": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Gold futures", "stream", True),\n    "MCX_SILVER": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Silver futures", "stream", True),
     "BTC": FeedSpec("Crypto", "CoinDCX Futures WebSocket", "CoinDCX Futures REST / candle history", "USDT-M perpetual futures", "stream"),
-    "ETH": FeedSpec("Crypto", "Binance USD-M Futures WebSocket", "Binance USD-M REST / CCXT", "USDT-M perpetual futures", "stream"),
-    "SOL": FeedSpec("Crypto", "Binance USD-M Futures WebSocket", "Binance USD-M REST / CCXT", "USDT-M perpetual futures", "stream"),
+    "ETH": FeedSpec("Crypto", "CoinDCX Futures WebSocket (to be integrated)", "CoinDCX Futures REST / candle history", "USDT-M perpetual futures", "stream"),
+    "SOL": FeedSpec("Crypto", "CoinDCX Futures WebSocket (to be integrated)", "CoinDCX Futures REST / candle history", "USDT-M perpetual futures", "stream"),
     "GOLD": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance GC=F reference", "COMEX Gold futures", "provider-dependent", True),
     "SILVER": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance SI=F reference", "COMEX Silver futures", "provider-dependent", True),
     "FX_FUTURES": FeedSpec("FX", "Databento / IBKR licensed CME feed", "Yahoo Finance CME futures symbols", "CME currency futures", "provider-dependent", True),
