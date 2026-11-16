@@ -47,3 +47,32 @@ def test_resample_aligns_to_nse_0915_session():
     assert len(five) == 2
     assert five.index[0] == pd.Timestamp("2026-01-05 09:15")
     assert five.index[1] == pd.Timestamp("2026-01-05 09:20")
+
+
+def test_crt_models_include_all_four_requested_timeframes():
+    from cisd_scanner import CRT_MODELS
+    assert [x["name"] for x in CRT_MODELS] == ["1H", "4H", "Daily", "Weekly"]
+
+
+def test_daily_crt_resampling_builds_one_bar_per_session():
+    from cisd_scanner import _resample_crt_bars
+    idx = pd.date_range("2026-01-05 09:15", periods=12, freq="5min")
+    frame = pd.DataFrame({
+        "Open": [100] * 12, "High": range(101, 113),
+        "Low": [99] * 12, "Close": [100] * 12,
+    }, index=idx)
+    daily = _resample_crt_bars(frame, "1D")
+    assert len(daily) == 1
+    assert float(daily.iloc[0].High) == 112.0
+
+
+def test_new_backtest_returns_metrics_when_history_has_no_setup():
+    from cisd_scanner import backtest_crt_cisd
+    idx = pd.date_range("2026-01-05 09:15", periods=60, freq="5min")
+    frame = pd.DataFrame({
+        "Open": [100.0] * len(idx), "High": [101.0] * len(idx),
+        "Low": [99.0] * len(idx), "Close": [100.0] * len(idx),
+    }, index=idx)
+    trades, metrics = backtest_crt_cisd(frame, CISDConfig())
+    assert trades.empty
+    assert metrics["total_trades"] == 0
