@@ -21,14 +21,14 @@ class FeedSpec:
     requires_subscription: bool = False
 
 
-FEED_REGISTRY = {
-    "BTC": FeedSpec("Crypto", "Binance USD-M Futures WebSocket", "Binance USD-M REST / CCXT", "USDT-M perpetual futures", "stream"),
+FEED_REGISTRY = {\n    "MCX_GOLD": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Gold futures", "stream", True),\n    "MCX_SILVER": FeedSpec("Metals", "DhanHQ MCX WebSocket", "DhanHQ REST quote / historical candles", "MCX Silver futures", "stream", True),
+    "BTC": FeedSpec("Crypto", "CoinDCX Futures WebSocket", "CoinDCX Futures REST / candle history", "USDT-M perpetual futures", "stream"),
     "ETH": FeedSpec("Crypto", "Binance USD-M Futures WebSocket", "Binance USD-M REST / CCXT", "USDT-M perpetual futures", "stream"),
     "SOL": FeedSpec("Crypto", "Binance USD-M Futures WebSocket", "Binance USD-M REST / CCXT", "USDT-M perpetual futures", "stream"),
-    "GOLD": FeedSpec("Metals", "Licensed COMEX/CME feed or IBKR", "Yahoo Finance GC=F reference", "COMEX Gold futures", "provider-dependent", True),
-    "SILVER": FeedSpec("Metals", "Licensed COMEX/CME feed or IBKR", "Yahoo Finance SI=F reference", "COMEX Silver futures", "provider-dependent", True),
-    "FX_FUTURES": FeedSpec("FX", "Licensed CME feed or IBKR", "Yahoo Finance CME futures symbols", "CME currency futures", "provider-dependent", True),
-    "US30": FeedSpec("Index", "Licensed CBOT feed or IBKR", "Yahoo Finance YM=F reference", "E-mini Dow futures (YM)", "provider-dependent", True),
+    "GOLD": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance GC=F reference", "COMEX Gold futures", "provider-dependent", True),
+    "SILVER": FeedSpec("Metals", "Databento / IBKR licensed COMEX feed", "Yahoo Finance SI=F reference", "COMEX Silver futures", "provider-dependent", True),
+    "FX_FUTURES": FeedSpec("FX", "Databento / IBKR licensed CME feed", "Yahoo Finance CME futures symbols", "CME currency futures", "provider-dependent", True),
+    "US30": FeedSpec("Index", "Databento / IBKR licensed CBOT feed", "Yahoo Finance YM=F reference", "E-mini Dow futures (YM)", "provider-dependent", True),
 }
 
 
