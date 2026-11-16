@@ -5,16 +5,20 @@ import streamlit as st
 
 from gold_cisd_scanner import (
     CISDConfig, INSTRUMENTS, backtest_cisd, find_day_setup,
-    fetch_yahoo_instrument_data, load_gold_ohlc_csv,
+    fetch_market_data, load_gold_ohlc_csv,
 )
 
 st.set_page_config(page_title="Multi-Asset CISD Scanner", page_icon="📊", layout="wide")
 st.title("📊 Multi-Asset CISD + FVG Scanner")
-st.caption("Liquidity Sweep → CISD → FVG → Retest → Entry | Yahoo Finance data")
+st.caption("Liquidity Sweep → CISD → FVG → Retest → Entry | Public live market-data APIs")
 
 st.info(
-    "Yeh scanner sirf metals, crypto pairs, forex pairs aur US30 futures proxy ke liye hai. "
-    "Stocks/equities is instrument list mein include nahi hain."
+    "Crypto: CCXT public exchange APIs (Binance, KuCoin fallback). "
+    "Forex / Metals / US30: Deriv public WebSocket. Stocks/equities included nahi hain."
+)
+st.warning(
+    "Live feed provider-specific hai: Deriv prices aapke broker ke CFD/spot se alag ho sakte hain; "
+    "Crypto selected exchange ka price hai. Scanner sirf market data padhta hai, orders place nahi karta."
 )
 
 with st.sidebar:
@@ -30,30 +34,31 @@ with st.sidebar:
 
 spec = INSTRUMENTS[category][instrument]
 st.subheader(f"{instrument} · {category}")
-st.caption(f"Yahoo ticker: {spec['ticker']} · Price unit: {spec['unit']}")
+st.caption(f"Data provider: {spec['provider']} · Price unit: {spec['unit']}")
 
-refresh = st.button("🔄 Refresh selected pair from Yahoo Finance", type="primary")
+refresh = st.button("🔄 Fetch latest price + 5-minute candles", type="primary")
 selected_key = f"{category}|{instrument}"
 cached_key = st.session_state.get("multi_cisd_selected_key")
 if refresh or cached_key != selected_key or "multi_cisd_data" not in st.session_state:
     try:
-        with st.spinner(f"Yahoo Finance se {instrument} ka latest quote aur 5-minute candles la rahe hain..."):
-            market_data, market_report = fetch_yahoo_instrument_data(category, instrument)
+        with st.spinner(f"{spec['provider']} se {instrument} ka latest quote aur 5-minute candles la rahe hain..."):
+            market_data, market_report = fetch_market_data(category, instrument)
         st.session_state["multi_cisd_data"] = market_data
         st.session_state["multi_cisd_report"] = market_report
         st.session_state["multi_cisd_selected_key"] = selected_key
         st.session_state.pop("multi_cisd_trades", None)
         st.session_state.pop("multi_cisd_metrics", None)
     except Exception as exc:
-        st.error(f"Yahoo data fetch nahi hua: {exc}")
+        st.error(f"Live market data fetch nahi hua: {exc}")
 
 if st.session_state.get("multi_cisd_selected_key") == selected_key and "multi_cisd_report" in st.session_state:
     report = st.session_state["multi_cisd_report"]
     q1, q2, q3 = st.columns(3)
     q1.metric("Latest available price", f"{report['latest_price']:,.5f}")
-    q2.metric("Yahoo ticker", report["ticker"])
-    q3.metric("Quote interval", report["quote_interval"])
-    st.caption(f"Yahoo timestamp: {report['latest_timestamp']} · {report['source']}")
+    q2.metric("Live provider / symbol", f"{report['provider']} · {report['ticker']}")
+    q3.metric("Quote type", report["quote_interval"])
+    st.caption(f"Provider timestamp: {report['latest_timestamp']} · Market: {report['display_name']}")
+    st.caption(report["note"])
     data = st.session_state["multi_cisd_data"]
     st.success(
         f"5-minute history loaded: {report['history_rows']:,} candles · "
@@ -107,7 +112,7 @@ if "multi_cisd_trades" in st.session_state:
         f"**Wins:** {metrics.get('wins', 0)} · **Losses:** {metrics.get('losses', 0)} · "
         f"**EOD exits:** {metrics.get('eod_exits', 0)}"
     )
-    st.caption("Win rate = TP/(TP+SL); EOD exits alag dikhaye gaye hain. Yahoo data delayed/incomplete ho sakta hai. Results broker spread, commission, swap, contract size aur execution se alag honge.")
+    st.caption("Win rate = TP/(TP+SL); EOD exits alag. Results broker spread, commission, swap, contract size aur execution se alag honge.")
     if len(trades) < 30:
         st.warning("30 se kam trades hain; win rate ko reliable estimate na maanein.")
     if not trades.empty:
@@ -137,4 +142,4 @@ if "multi_cisd_trades" in st.session_state:
                 st.info("Latest session mein qualifying setup nahi mila.")
 else:
     if "multi_cisd_data" not in st.session_state:
-        st.info("Market aur pair select karke Yahoo refresh karein.")
+        st.info("Market aur pair select karke live data fetch karein.")
