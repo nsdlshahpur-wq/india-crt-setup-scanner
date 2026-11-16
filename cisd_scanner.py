@@ -408,7 +408,7 @@ def _zone_candidates(data: pd.DataFrame, direction: int, cisd_time: pd.Timestamp
 
 def _entry_after_cisd(entry_bars: pd.DataFrame, cisd_time: pd.Timestamp,
                       direction: int) -> dict[str, Any] | None:
-    """Entry on the first valid retest of ANY enabled FVG/IFVG/OB/Advanced OB."""
+    """Entry on the first touch/retest of ANY enabled FVG/IFVG/OB/Advanced OB."""
     data = entry_bars[entry_bars.index > pd.Timestamp(cisd_time)]
     if len(data) < 4:
         return None
@@ -418,9 +418,9 @@ def _entry_after_cisd(entry_bars: pd.DataFrame, cisd_time: pd.Timestamp,
         for j in range(zone["formed_i"] + 1, len(data) - 1):
             bar = data.iloc[j]
             touched = float(bar.Low) <= zone["high"] and float(bar.High) >= zone["low"]
-            rejected = (_is_bull(bar) and float(bar.Close) > zone["low"]) if direction == 1 else (
-                _is_bear(bar) and float(bar.Close) < zone["high"])
-            if touched and rejected:
+            # User rule: any one of the four zones can trigger on retest.
+            # Use the next candle open as the conservative OHLC backtest fill.
+            if touched:
                 candidates.append((j, zone))
                 break
     if not candidates:
