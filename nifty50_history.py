@@ -63,12 +63,15 @@ def _load_one_csv(url: str, label: str) -> tuple[pd.DataFrame | None, str | None
         return None, f"{type(exc).__name__}: {exc}", 0
 
 
+def clear_history_cache() -> None:
+    """Clear combined and per-file caches when the user explicitly forces refresh."""
+    _load_one_csv.clear()
+    load_full_nifty50_1m.clear()
+
+
 @st.cache_data(ttl=24 * 60 * 60, show_spinner=False, max_entries=2)
 def load_full_nifty50_1m(force_refresh: bool = False) -> tuple[pd.DataFrame, dict]:
-    """Combine independently cached CSVs; force_refresh clears source-file cache."""
-    if force_refresh:
-        _load_one_csv.clear()
-
+    """Combine independently cached CSVs; cache files individually for seven days."""
     frames: list[pd.DataFrame] = []
     report = {
         "source": SOURCE_REPO, "files_loaded": [],
