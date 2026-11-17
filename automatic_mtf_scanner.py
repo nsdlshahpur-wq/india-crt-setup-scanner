@@ -126,7 +126,8 @@ def main() -> int:
         "LTF Liquidity", "LTF MSS", "Entry Zone", "Retest Zone",
         "Retest Price", "Entry Price", "Entry Time", "Alignment",
         "Entry Status", "Signal", "HTF Close", "LTF Close",
-        "HTF Candle", "LTF Candle", "CRT Timeframe", "CRT Sweep", "15M CISD",\n        "5M Entry Status", "Stop Loss", "Target 1 (2R)", "Target 2 (3R)", "RR",
+        "HTF Candle", "LTF Candle", "CRT Timeframe", "CRT Sweep", "15M CISD",
+        "5M Entry Status", "Stop Loss", "Target 1 (2R)", "Target 2 (3R)", "RR",
     ]
     pd.DataFrame(rows, columns=columns).to_csv(OUTPUT_PATH, index=False, encoding="utf-8-sig")
     if errors:
