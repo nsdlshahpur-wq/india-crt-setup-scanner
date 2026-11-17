@@ -36,22 +36,18 @@ def resample_1m_to_5m(data: pd.DataFrame) -> pd.DataFrame:
     frame.index = pd.to_datetime(frame.index)
     frame = frame.sort_index()
     frame = frame[~frame.index.duplicated(keep="last")]
-    # Source timestamps are assumed to be exchange-local IST, as in the
-    # repository's NIFTY history loader. Do not silently convert timezone.
+    # Source timestamps are exchange-local IST. A single resample is safe:
+    # overnight bins are empty and dropped, avoiding a Python loop per session.
     frame = frame.between_time("09:15", "15:29")
-    chunks = []
-    for _, session in frame.groupby(frame.index.date):
-        bars = session.resample(
-            "5min", origin="start_day", offset="15min",
-            label="left", closed="left"
-        ).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
-        bars = bars.dropna(subset=["Open", "High", "Low", "Close"])
-        bars = bars[(bars.index.time >= pd.Timestamp("09:15").time()) &
-                    (bars.index.time <= pd.Timestamp("15:25").time())]
-        chunks.append(bars)
-    if not chunks:
+    result = frame.resample(
+        "5min", origin="start_day", offset="15min",
+        label="left", closed="left"
+    ).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+    result = result.dropna(subset=["Open", "High", "Low", "Close"])
+    result = result[(result.index.time >= pd.Timestamp("09:15").time()) &
+                    (result.index.time <= pd.Timestamp("15:25").time())]
+    if result.empty:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close"])
-    result = pd.concat(chunks).sort_index()
     result.index.name = "Timestamp"
     return result
 
@@ -409,7 +405,12 @@ def _zone_candidates(data: pd.DataFrame, direction: int, cisd_time: pd.Timestamp
 def _entry_after_cisd(entry_bars: pd.DataFrame, cisd_time: pd.Timestamp,
                       direction: int) -> dict[str, Any] | None:
     """Entry on the first touch/retest of ANY enabled FVG/IFVG/OB/Advanced OB."""
-    data = entry_bars[entry_bars.index > pd.Timestamp(cisd_time)]
+    # This is an intraday strategy: zone formation and retest must occur in
+    # the CISD session. This prevents scanning years of future bars per setup.
+    data = entry_bars[
+        (entry_bars.index > pd.Timestamp(cisd_time))
+        & (entry_bars.index.date == pd.Timestamp(cisd_time).date())
+    ]
     if len(data) < 4:
         return None
     zones = _zone_candidates(data, direction, data.index[0] - pd.Timedelta(minutes=1))
@@ -434,13 +435,21 @@ def _entry_after_cisd(entry_bars: pd.DataFrame, cisd_time: pd.Timestamp,
 
 def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                       slippage_points_per_side: float = 0.0) -> tuple[pd.DataFrame, dict]:
-    """Backtest four CRT models with sequential 15M CISD and 5M FVG retest."""
+    """Backtest mapped CRT/CISD intraday models with four-zone retest entries."""
     cfg = config or CISDConfig()
     five = five.dropna(subset=["Open", "High", "Low", "Close"]).sort_index()
     rows = []
+    # Resample each entry timeframe exactly once per run, not once per CRT bar.
+    entry_frames = {
+        model["name"]: _resample_entry_bars(five, model["entry_rule"])
+        for model in CRT_MODELS
+    }
     for model in CRT_MODELS:
         crt = _resample_crt_bars(five, model["rule"])
         if len(crt) < 3:
+            continue
+        entry_bars = entry_frames[model["name"]]
+        if entry_bars.empty:
             continue
         used_sessions = set()
         for k in range(1, len(crt)):
@@ -455,7 +464,6 @@ def backtest_crt_cisd(five: pd.DataFrame, config: CISDConfig | None = None,
                 continue
             m2_start = pd.Timestamp(crt.index[k])
             m2_end = m2_start + model["duration"]
-            entry_bars = _resample_entry_bars(five, model["entry_rule"])
             cisd = _cisd_after_sweep(entry_bars, m2_end, direction)
             if cisd is None:
                 continue
