@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from urllib.parse import quote
-import os
 import time
 
-import requests
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -17,8 +15,6 @@ from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from mtf_analysis import analyze_mtf_symbol
 from multi_symbol_scanner import scan_symbols
-from market_intelligence import build_market_snapshot, fetch_google_news_sentiment
-from quantum_ai import analyze_quantum_market
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -45,7 +41,7 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
-scanner_tab, backtest_tab, mtf_tab, screener_tab = st.tabs(["📊 Dashboard + AI", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener"]) 
+scanner_tab, backtest_tab, mtf_tab, screener_tab = st.tabs(["📊 Dashboard", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener"]) 
 
 with scanner_tab:
     col_a, col_b = st.columns([1, 4])
@@ -186,11 +182,6 @@ with scanner_tab:
         n6.metric("SL Hit Before Entry / Ambiguous", f"{stop_before_entry_count + ambiguous_count:,}")
         st.metric("Missed / Stale Entry (not a fresh signal)", f"{missed_entry_count:,}")
         st.caption(f"Source: Yahoo Finance · Last scan: {scan_time} · Data errors / unavailable tickers: {error_count:,}")
-        ensemble_report = st.session_state.get("crt_ensemble_report", {})
-        if st.session_state.get("crt_ensemble_model") is not None:
-            st.success("CRT Historical ML Ensemble सक्रिय: Random Forest + Extra Trees + Gradient Boosting. केवल fresh Stage-3 setups पर historical model score दिखेगा।")
-        else:
-            st.info("CRT Historical ML Ensemble अभी train नहीं है। Backtest चलाएँ; पर्याप्त closed historical WIN/LOSS trades मिलने पर model train होगा।")
         latest_daily_date = (
             pd.to_datetime(results["Last Candle"], errors="coerce").max()
             if not results.empty and "Last Candle" in results.columns else pd.NaT
@@ -537,116 +528,6 @@ with scanner_tab:
             "- **Active:** Sweep-candle SL और opposite M1 liquidity target बाकी."
         )
     
-
-    st.divider()
-    st.header("🤖 Central CRT AI Command Centre")
-    st.caption("यहीं से Daily Scanner, पाँचों MTF pairs, All Index / All Stocks, setup history और data errors के बारे में पूछें। AI केवल Scanner में उपलब्ध रिकॉर्ड के आधार पर जवाब देगा।")
-    def _dashboard_ai_key():
-        key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not key:
-            try:
-                key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
-            except Exception:
-                key = ""
-        return key
-    dashboard_ai_key = _dashboard_ai_key()
-    if not dashboard_ai_key:
-        st.warning("AI चालू करने के लिए Streamlit Cloud → App Settings → Secrets में GEMINI_API_KEY जोड़ें।")
-    if "crt_ai_messages" not in st.session_state:
-        st.session_state["crt_ai_messages"] = []
-    for ai_msg in st.session_state["crt_ai_messages"][-12:]:
-        with st.chat_message(ai_msg["role"]):
-            st.markdown(ai_msg["content"])
-    ai_question = st.chat_input("कमांड दें: पूरे मार्केट में आज क्या setup बना है? RELIANCE के पाँचों timeframe बताओ...", key="dashboard_crt_ai_input")
-    if ai_question:
-        st.session_state["crt_ai_messages"].append({"role": "user", "content": ai_question})
-        ai_context = [
-            "You are the single central AI command centre for India CRT Setup Scanner. Reply in clear Hindi. Understand natural-language commands and questions. Never invent scan records, prices, timeframes, strategy stages, or counts. Distinguish confirmed ORDER from WAIT, rejected, missed, unavailable data. Do not claim continuous/live monitoring; state scan timestamp and data source. Never execute trades.",
-            "Configured pairs: Monthly→Daily, Weekly→4H, Daily→1H, 4H→5m, 1H→5m. CRT M1/M2 are marked on their own CRT timeframe. Entry CHoCH, FVG, IFVG, OB, BOB retest and confirmation are evaluated on the paired entry timeframe. Use the local breadth/regime snapshot as a rule-based quantitative estimate, not a predictive certainty. News sentiment is a simple transparent keyword baseline over public RSS headlines, not a finance-trained transformer. Always report coverage, sample count and data timestamp; never call unavailable data neutral.",
-            "Daily scanner snapshot:",
-        ]
-        daily_df = st.session_state.get("scan_results")
-        if isinstance(daily_df, pd.DataFrame):
-            ai_context.append(f"daily rows={len(daily_df)}; scan_time={st.session_state.get('scan_time', 'unknown')}; data_received={st.session_state.get('scan_data_count', 'unknown')}; errors={st.session_state.get('scan_error_count', 'unknown')}")
-            ai_context.append(daily_df.head(1500).to_json(orient="records", date_format="iso"))
-        else:
-            ai_context.append("No Daily full-market scan has been run in this session.")
-        for key, label, time_key, error_key in [
-            ("crt_mtf_results", "Selected-symbol MTF", "crt_mtf_scan_time", "crt_mtf_errors"),
-            ("crt_multi_screener_results", "All-symbol five-pair screener", "crt_multi_screener_time", "crt_multi_screener_errors"),
-        ]:
-            frame = st.session_state.get(key)
-            if isinstance(frame, pd.DataFrame):
-                ai_context.append(f"{label}: rows={len(frame)}; time={st.session_state.get(time_key, 'unknown')}; errors={len(st.session_state.get(error_key, {}))}")
-                if not frame.empty:
-                    ai_context.append(frame.head(2000).to_json(orient="records", date_format="iso"))
-            else:
-                ai_context.append(f"{label}: no scan record available in this session.")
-        if "crt_ensemble_report" in st.session_state:
-            ai_context.append("Historical model validation report: " + str(st.session_state["crt_ensemble_report"]))
-        # Quantitative market context is computed locally from the same downloaded OHLC
-        # and scanner records; no extra paid data API is needed.
-        try:
-            market_snapshot = build_market_snapshot(
-                st.session_state.get("scan_price_map", {}),
-                daily_df if isinstance(daily_df, pd.DataFrame) else None,
-                st.session_state.get("crt_multi_screener_results"),
-            )
-            ai_context.append("LOCAL QUANTITATIVE MARKET BREADTH / REGIME SNAPSHOT (rule-based, not a guaranteed prediction):")
-            ai_context.append(str(market_snapshot))
-        except Exception as market_exc:
-            ai_context.append(f"Local market snapshot unavailable: {type(market_exc).__name__}: {str(market_exc)[:160]}")
-        asks_quantum_analysis = any(word in ai_question.lower() for word in (
-            "quantum", "क्वांटम", "quantam", "quantum ai", "quantum analysis",
-        ))
-        if asks_quantum_analysis:
-            try:
-                quantum_result = analyze_quantum_market(
-                    st.session_state.get("scan_price_map", {}),
-                    daily_df if isinstance(daily_df, pd.DataFrame) else None,
-                    st.session_state.get("crt_multi_screener_results"),
-                )
-                ai_context.append("EXPERIMENTAL QUANTUM-KERNEL MARKET ANALYSIS (research only; not calibrated probabilities or trade signals):")
-                ai_context.append(str(quantum_result))
-            except Exception as quantum_exc:
-                ai_context.append(f"Quantum simulator unavailable: {type(quantum_exc).__name__}: {str(quantum_exc)[:200]}")
-
-        asks_news_sentiment = any(word in ai_question.lower() for word in (
-            "sentiment", "news", "खबर", "न्यूज़", "news", "market mood", "market outlook",
-            "बाजार का मूड", "मार्केट का मूड", "बाजार का हाल", "मार्केट का हाल",
-        ))
-        if asks_news_sentiment:
-            try:
-                news_snapshot = fetch_google_news_sentiment()
-                ai_context.append("PUBLIC INDIA MARKET NEWS HEADLINE SENTIMENT (keyword-lexicon estimate; headline-only; not FinBERT):")
-                ai_context.append(str(news_snapshot))
-            except Exception as news_exc:
-                ai_context.append(f"Public news RSS unavailable: {type(news_exc).__name__}: {str(news_exc)[:180]}")
-
-        ai_history = st.session_state["crt_ai_messages"][-12:]
-        ai_payload = {
-            "systemInstruction": {"parts": [{"text": "\\n\\n".join(ai_context)}]},
-            "contents": [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in ai_history],
-            "generationConfig": {"maxOutputTokens": 1800, "temperature": 0.2},
-        }
-        if not dashboard_ai_key:
-            ai_answer = "Gemini API key उपलब्ध नहीं है। Streamlit Secrets में GEMINI_API_KEY जोड़ें।"
-        else:
-            try:
-                response = requests.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", headers={"x-goog-api-key": dashboard_ai_key, "Content-Type": "application/json"}, json=ai_payload, timeout=(15, 120))
-                response.raise_for_status()
-                body = response.json()
-                ai_answer = "".join(part.get("text", "") for part in body.get("candidates", [{}])[0].get("content", {}).get("parts", [])).strip()
-                if not ai_answer:
-                    ai_answer = "AI से खाली उत्तर मिला। कृपया प्रश्न दोबारा पूछें।"
-            except Exception as exc:
-                ai_answer = f"AI सेवा से उत्तर नहीं मिला: {type(exc).__name__}: {str(exc)[:250]}"
-        st.session_state["crt_ai_messages"].append({"role": "assistant", "content": ai_answer})
-        with st.chat_message("assistant"):
-            st.markdown(ai_answer)
-    if st.button("🗑️ Clear AI conversation", key="clear_dashboard_crt_ai"):
-        st.session_state["crt_ai_messages"] = []
-        st.rerun()
 
 with backtest_tab:
      st.subheader("📈 Historical CRT Backtest")
