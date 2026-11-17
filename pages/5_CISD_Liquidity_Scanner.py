@@ -9,7 +9,7 @@ from nifty50_history import load_full_nifty50_1m
 
 st.set_page_config(page_title="NIFTY 50 CRT + CISD Scanner", page_icon="🎯", layout="wide")
 st.title("🎯 NIFTY 50 — CRT + CISD Liquidity Scanner")
-st.caption("CRT MTF ALIGNMENT: 1H→5M · 4H→15M · Daily→30M · Weekly→1H | Zones: FVG / IFVG / OB / Advanced OB")
+st.caption("Historical files are cached separately for 7 days; mapped entry bars are resampled once per run. CRT MTF ALIGNMENT: 1H→5M · 4H→15M · Daily→30M · Weekly→1H | Zones: FVG / IFVG / OB / Advanced OB")
 
 st.warning(
     "पुराना केवल Previous-Day Liquidity Sweep → CISD → FVG मॉडल हटा दिया गया है। "
@@ -34,10 +34,10 @@ st.markdown(
     "Both 2R and 3R levels are shown; selected R controls the backtest exit."
 )
 
-if st.button("Load historical data → build 5M / 15M bars → CRT + CISD backtest",
+if st.button("Load cached NIFTY history → run optimized CRT + CISD backtest",
              type="primary"):
     try:
-        with st.spinner("Loading historical NIFTY data and building timeframe candles..."):
+        with st.spinner("Loading cached historical files (only missing/expired files download)..."):
             one_min, source_report = load_full_nifty50_1m(force_refresh=force_refresh)
             five_min = resample_1m_to_5m(one_min)
         if five_min.empty:
@@ -45,7 +45,7 @@ if st.button("Load historical data → build 5M / 15M bars → CRT + CISD backte
             st.stop()
         cfg = CISDConfig(rr=float(rr), stop_buffer_points=float(stop_buffer),
                          one_trade_per_day=True)
-        with st.spinner("Running no-look-ahead CRT → mapped CISD → FVG/IFVG/OB/Advanced OB retest backtest..."):
+        with st.spinner("Running optimized CRT → mapped CISD → four-zone retest backtest..."):
             trades, metrics = backtest_crt_cisd(
                 five_min, cfg, slippage_points_per_side=float(slippage)
             )
@@ -130,4 +130,4 @@ if "cisd_5m_data" in st.session_state:
     with st.expander("Data source and coverage report"):
         st.write(source)
 else:
-    st.info("ऊपर बटन दबाकर historical 1-minute data से 5-minute candles बनाएँ और नया CRT + CISD backtest चलाएँ.")
+    st.info("ऊपर बटन दबाएँ। Historical CSV files अलग-अलग cache होंगी; अगली बार केवल नई/expired files download होंगी। Backtest अपने-आप page खुलते ही शुरू नहीं होगा.")
