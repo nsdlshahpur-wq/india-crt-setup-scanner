@@ -33,41 +33,6 @@ def telegram_send(message: str) -> None:
     response.raise_for_status()
 
 
-def ai_summary(signals: list[dict]) -> str:
-    """Optional OpenAI summary; deterministic signal rules remain the source of truth."""
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key or not signals:
-        return ""
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-    payload = {
-        "model": model,
-        "input": [
-            {
-                "role": "system",
-                "content": "Summarise these rule-based Indian equity CRT scan results in concise Hindi. "
-                "Do not invent prices, predict certainty, or recommend automatic execution. "
-                "State that this is a screening alert, not investment advice."
-            },
-            {"role": "user", "content": json.dumps(signals, ensure_ascii=False)}
-        ],
-        "max_output_tokens": 350,
-    }
-    response = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=30,
-    )
-    response.raise_for_status()
-    body = response.json()
-    parts = []
-    for item in body.get("output", []):
-        for content in item.get("content", []):
-            if content.get("type") == "output_text":
-                parts.append(content.get("text", ""))
-    return "\n".join(parts).strip()
-
-
 def load_state() -> set[str]:
     try:
         return set(json.loads(STATE_PATH.read_text(encoding="utf-8")))
@@ -158,9 +123,6 @@ def main() -> int:
         lines.append(f"...and {len(fresh) - 30} more signals.")
     lines.append("Read-only alert. Verify chart/data; no orders are placed.")
     message = "\n".join(lines)
-    summary = ai_summary(fresh)
-    if summary:
-        message += "\n\n🤖 AI summary (optional):\n" + summary
     telegram_send(message)
     return 0
 
