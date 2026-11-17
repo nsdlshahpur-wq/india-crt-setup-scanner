@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from cisd_scanner import CISDConfig, backtest_crt_cisd, resample_1m_to_5m
-from nifty50_history import load_full_nifty50_1m
+from nifty50_history import clear_history_cache, load_full_nifty50_1m
 
 st.set_page_config(page_title="NIFTY 50 CRT + CISD Scanner", page_icon="🎯", layout="wide")
 st.title("🎯 NIFTY 50 — CRT + CISD Liquidity Scanner")
@@ -38,7 +38,9 @@ if st.button("Load cached NIFTY history → run optimized CRT + CISD backtest",
              type="primary"):
     try:
         with st.spinner("Loading cached historical files (only missing/expired files download)..."):
-            one_min, source_report = load_full_nifty50_1m(force_refresh=force_refresh)
+            if force_refresh:
+                clear_history_cache()
+            one_min, source_report = load_full_nifty50_1m()
             five_min = resample_1m_to_5m(one_min)
         if five_min.empty:
             st.error("5-minute candles could not be built from the source data.")
