@@ -320,7 +320,13 @@ def _resample_entry_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
 def _cisd_after_sweep(entry_bars: pd.DataFrame, start_time: pd.Timestamp,
                       direction: int) -> tuple[int, pd.Timestamp, float] | None:
     """CISD body-close confirmation on the CRT model's mapped entry timeframe."""
-    data = entry_bars[entry_bars.index >= start_time]
+    # Intraday model: confirm CISD during the session in which the CRT M2
+    # candle completes; do not keep searching years of later candles.
+    start = pd.Timestamp(start_time)
+    data = entry_bars[
+        (entry_bars.index >= start)
+        & (entry_bars.index.date == start.date())
+    ]
     for i in range(1, len(data)):
         row = data.iloc[i]
         if direction == 1 and _is_bull(row) and _is_bear(data.iloc[i - 1]):
