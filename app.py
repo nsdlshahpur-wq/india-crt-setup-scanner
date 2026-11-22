@@ -1314,15 +1314,24 @@ with algo_research_tab:
             format_func=lambda symbol: f"{index_names[symbol]} ({symbol})",
             key="algo_research_index",
         )
+        algo_mode = st.selectbox("Research mode", ["Daily / Positional", "Intraday / Day Trading"], key="algo_research_mode")
+        daily_algos = [name for name in ALGO_NAMES if not name.startswith("DAY:")]
+        intraday_algos = [name for name in ALGO_NAMES if name.startswith("DAY:")]
+        available_algos = daily_algos if algo_mode == "Daily / Positional" else intraday_algos
         selected_algos = st.multiselect(
-            "Select algorithms to compare",
-            ALGO_NAMES,
-            default=ALGO_NAMES,
-            key="algo_research_strategies",
+            "Select algorithms to compare", available_algos, default=available_algos,
+            key="algo_research_daily_strategies" if algo_mode == "Daily / Positional" else "algo_research_intraday_strategies",
         )
         r1, r2, r3 = st.columns(3)
-        with r1:
-            algo_period = st.selectbox("Historical period", ["1y", "2y", "3y", "5y"], index=3, key="algo_research_period")
+        if algo_mode == "Intraday / Day Trading":
+            with r1:
+                algo_interval = st.selectbox("Intraday candle", ["5m", "15m"], index=1, key="algo_research_interval")
+            with r2:
+                algo_period = st.selectbox("Intraday history", ["5d", "1mo", "2mo"], index=2, key="algo_research_intraday_period")
+        else:
+            algo_interval = "1d"
+            with r1:
+                algo_period = st.selectbox("Historical period", ["1y", "2y", "3y", "5y"], index=3, key="algo_research_period")
         with r2:
             algo_charges = st.number_input("Charges (bps / side)", min_value=0.0, max_value=100.0, value=12.0, step=1.0, key="algo_research_charges")
         with r3:
@@ -1334,13 +1343,13 @@ with algo_research_tab:
             else:
                 try:
                     cached_algo = st.session_state.get("_algo_index_data", {})
-                    cache_key = (selected_index, algo_period)
+                    cache_key = (selected_index, algo_period, algo_interval)
                     if cached_algo.get("key") == cache_key and selected_index in cached_algo.get("prices", {}):
                         algo_prices = cached_algo["prices"][selected_index]
                         st.success("इस index का पहले डाउनलोड किया गया Yahoo data इस्तेमाल हो रहा है।")
                     else:
                         with st.spinner(f"{index_names[selected_index]} का {algo_period} Yahoo OHLC डाउनलोड हो रहा है..."):
-                            fetched, fetch_errors = download_market_data([selected_index], period=algo_period, batch_size=1)
+                            fetched, fetch_errors = download_market_data([selected_index], period=algo_period, batch_size=1, interval=algo_interval)
                         if selected_index not in fetched:
                             st.error(fetch_errors.get(selected_index, "Yahoo Finance से OHLC data नहीं मिला।"))
                             st.stop()
@@ -1360,7 +1369,7 @@ with algo_research_tab:
                         curves[algo_name] = curve
                     st.session_state["algo_research_results"] = {
                         "index": selected_index, "index_name": index_names[selected_index],
-                        "period": algo_period, "summaries": pd.DataFrame(summaries),
+                        "period": algo_period, "interval": algo_interval, "mode": algo_mode, "summaries": pd.DataFrame(summaries),
                         "trades": trade_frames, "curves": curves,
                     }
                 except Exception as exc:
