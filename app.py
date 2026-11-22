@@ -1104,43 +1104,93 @@ with scanner50_tab:
 
         if run50:
             is_intraday = mode50.startswith("Intraday")
-            script_name = (
-                "intraday.py" if market50 == "NSE" and is_intraday else
-                "india.py" if market50 == "NSE" else
-                "bse_intraday.py" if is_intraday else "bse.py"
-            )
-            universe_name = "universe.csv" if market50 == "NSE" else "bse-universe.csv"
-            command = [sys.executable, str(engine_root / script_name)]
-            if symbols50.strip():
-                command += ["--symbols", symbols50.strip()]
-            else:
-                command += ["--universe", str(engine_root / universe_name)]
-            if market50 == "NSE" and is_intraday:
-                command += ["--volume-multiple", str(volume50)]
-            with tempfile.TemporaryDirectory(prefix="scanner50-") as temp_dir:
-                output_file = Path(temp_dir) / "scanner50-results.json"
-                command += ["--output", str(output_file)]
-                with st.spinner(f"Scanner 5.0 {market50} {mode50} scan चल रहा है..."):
-                    try:
-                        completed = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
-                        st.code(" ".join(command[:-2]), language="bash")
-                        if completed.stdout:
-                            st.text(completed.stdout[-6000:])
-                        if completed.stderr:
-                            st.warning(completed.stderr[-4000:])
-                        if output_file.exists():
-                            payload50 = json.loads(output_file.read_text(encoding="utf-8"))
-                            st.session_state["scanner50_live_payload"] = payload50
-                            st.session_state["scanner50_live_market"] = market50
-                            st.session_state["scanner50_live_mode"] = mode50
-                        elif completed.returncode != 0:
-                            st.error(f"Scanner process failed (exit code {completed.returncode}).")
-                        else:
-                            st.warning("Scan completed, but no JSON result file was produced.")
-                    except subprocess.TimeoutExpired:
-                        st.error("Scan में 15 मिनट से अधिक समय लगा और process रोक दिया गया। Symbols की छोटी सूची से दोबारा प्रयास करें।")
-                    except Exception as exc:
-                        st.exception(exc)
+            try:
+                if not symbols50.strip() and not is_intraday:
+                    # Full exchange universe comes from the existing NSE/BSE security-master
+                    # loader; Yahoo Finance remains the OHLCV data provider.
+                    universe_mode50 = "All NSE EQ stocks" if market50 == "NSE" else "All BSE EQ stocks"
+                    with st.spinner(f"Loading complete {market50} equity universe..."):
+                        universe50 = make_universe(universe_mode50)
+                    universe50 = universe50[
+                        universe50["Symbol"].fillna("").astype(str).str.strip().ne("")
+                        & universe50["Type"].eq("Stock")
+                    ].drop_duplicates(subset=["Symbol"])
+                    if universe50.empty:
+                        st.error(f"{market50} exchange master से कोई equity symbol नहीं मिला।")
+                        st.stop()
+                    symbols_full50 = universe50["Symbol"].astype(str).tolist()
+                    st.info(f"{market50} में {len(symbols_full50):,} listed equity symbols लोड हुए। Yahoo पर जिनका data उपलब्ध नहीं होगा, वे errors में दिखेंगे।")
+                    sys.path.insert(0, str(engine_root))
+                    import india as scanner50_india
+                    with st.spinner(f"Yahoo Finance से {len(symbols_full50):,} shares का Daily OHLC data डाउनलोड हो रहा है..."):
+                        price_map50, errors_map50 = download_market_data(
+                            symbols_full50, period="3mo", batch_size=60
+                        )
+                    result_rows50 = []
+                    for ticker50, frame50 in price_map50.items():
+                        plain_symbol50 = ticker50[:-3] if ticker50.endswith(".NS") else ticker50[:-3] if ticker50.endswith(".BO") else ticker50
+                        bars50 = []
+                        for stamp50, row50 in frame50.iterrows():
+                            stamp_iso50 = pd.Timestamp(stamp50).isoformat()
+                            def _num50(value):
+                                try:
+                                    value = float(value)
+                                    return value if pd.notna(value) else None
+                                except (TypeError, ValueError):
+                                    return None
+                            bars50.append({
+                                "time": stamp_iso50, "open": _num50(row50.get("Open")),
+                                "high": _num50(row50.get("High")), "low": _num50(row50.get("Low")),
+                                "close": _num50(row50.get("Close")), "volume": _num50(row50.get("Volume")) or 0,
+                            })
+                        if bars50:
+                            analysed50 = scanner50_india.analyze_daily(plain_symbol50, bars50)
+                            analysed50["exchange"] = market50
+                            analysed50["ticker"] = ticker50
+                            analysed50["name"] = universe50.loc[universe50["Symbol"].eq(ticker50), "Name"].iloc[0]
+                            result_rows50.append(analysed50)
+                    payload50 = {
+                        "market": market50, "mode": "research_only", "symbols_requested": len(symbols_full50),
+                        "symbols_returned": len(price_map50), "failed": len(errors_map50),
+                        "results": result_rows50,
+                        "errors": [{"symbol": k, "error": v} for k, v in errors_map50.items()],
+                        "data_warning": "Yahoo Finance unofficial feed. Full exchange listing is loaded, but Yahoo OHLC coverage is not guaranteed. Daily scan uses 3 months of history.",
+                    }
+                    st.session_state["scanner50_live_payload"] = payload50
+                    st.session_state["scanner50_live_market"] = market50
+                    st.session_state["scanner50_live_mode"] = mode50
+                else:
+                    if not symbols50.strip() and is_intraday:
+                        st.warning("पूरे एक्सचेंज का Intraday scan अभी उपलब्ध नहीं है; Intraday के लिए comma-separated symbols दें। Full-universe Daily scan उपलब्ध है।")
+                        st.stop()
+                    script_name = (
+                        "intraday.py" if market50 == "NSE" and is_intraday else
+                        "india.py" if market50 == "NSE" else
+                        "bse_intraday.py" if is_intraday else "bse.py"
+                    )
+                    command = [sys.executable, str(engine_root / script_name), "--symbols", symbols50.strip()]
+                    if market50 == "NSE" and is_intraday:
+                        command += ["--volume-multiple", str(volume50)]
+                    with tempfile.TemporaryDirectory(prefix="scanner50-") as temp_dir:
+                        output_file = Path(temp_dir) / "scanner50-results.json"
+                        command += ["--output", str(output_file)]
+                        with st.spinner(f"Scanner 5.0 {market50} {mode50} scan चल रहा है..."):
+                            completed = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+                            if completed.stdout:
+                                st.text(completed.stdout[-6000:])
+                            if completed.stderr:
+                                st.warning(completed.stderr[-4000:])
+                            if output_file.exists():
+                                payload50 = json.loads(output_file.read_text(encoding="utf-8"))
+                                st.session_state["scanner50_live_payload"] = payload50
+                                st.session_state["scanner50_live_market"] = market50
+                                st.session_state["scanner50_live_mode"] = mode50
+                            elif completed.returncode != 0:
+                                st.error(f"Scanner process failed (exit code {completed.returncode}).")
+                            else:
+                                st.warning("Scan completed, but no JSON result file was produced.")
+            except Exception as exc:
+                st.exception(exc)
 
         payload50 = st.session_state.get("scanner50_live_payload")
         if payload50:
