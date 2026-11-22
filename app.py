@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from urllib.parse import quote
 import time
+import json
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -41,7 +42,7 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
-scanner_tab, backtest_tab, mtf_tab, screener_tab = st.tabs(["📊 Dashboard", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener"]) 
+scanner_tab, backtest_tab, mtf_tab, screener_tab, scanner50_tab = st.tabs(["📊 Dashboard", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener", "🚀 Scanner 5.0"]) 
 
 with scanner_tab:
     col_a, col_b = st.columns([1, 4])
@@ -1075,3 +1076,114 @@ with screener_tab:
         "के कारण किसी pair में data missing हो सकता है; ऐसे pair को error/WAIT के रूप में दिखाया जाएगा. "
         "यह signal-only scanner है, execution system नहीं।"
     )
+
+
+with scanner50_tab:
+    st.header("🚀 Scanner 5.0 · Multi-Market Dashboard")
+    st.caption("US · NSE · BSE | Scanner 5.0 के outputs को इसी Indian CRT Scanner में देखें और compare करें।")
+
+    st.info(
+        "यह integrated section Scanner 5.0 के JSON outputs को पढ़ता है। "
+        "यहां upload किए गए outputs को market-wise filter, search और CSV export किया जा सकता है। "
+        "Scanner 5.0 के scan engines अलग से run करके उनकी JSON files यहां upload करें।"
+    )
+
+    scanner50_uploads = st.file_uploader(
+        "Scanner 5.0 JSON outputs upload करें",
+        type=["json"],
+        accept_multiple_files=True,
+        key="scanner50_json_uploads",
+        help="एक साथ US, NSE और BSE की daily/intraday JSON files चुन सकते हैं।",
+    )
+
+    def _scanner50_market(filename: str) -> str:
+        name = filename.lower()
+        if "bse" in name:
+            return "BSE"
+        if "nse" in name or "india" in name:
+            return "NSE"
+        if any(token in name for token in ("us", "nasdaq", "nyse", "sp500", "s&p")):
+            return "US"
+        return "Other"
+
+    def _scanner50_rows(payload):
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict):
+            rows = payload.get("results", payload.get("signals", payload.get("rows", [])))
+            if isinstance(rows, dict):
+                rows = list(rows.values())
+            if not isinstance(rows, list):
+                rows = [payload] if payload else []
+        else:
+            rows = []
+        return [row for row in rows if isinstance(row, dict)]
+
+    if scanner50_uploads:
+        scanner50_frames, scanner50_errors = [], []
+        for uploaded in scanner50_uploads:
+            try:
+                payload = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+                records = _scanner50_rows(payload)
+                if records:
+                    frame = pd.DataFrame(records)
+                    frame.insert(0, "Market", _scanner50_market(uploaded.name))
+                    frame.insert(1, "Source File", uploaded.name)
+                    scanner50_frames.append(frame)
+                else:
+                    scanner50_errors.append(f"{uploaded.name}: JSON में कोई tabular signal/row नहीं मिला।")
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                scanner50_errors.append(f"{uploaded.name}: invalid JSON ({exc})")
+
+        for error in scanner50_errors:
+            st.warning(error)
+
+        if scanner50_frames:
+            combined50 = pd.concat(scanner50_frames, ignore_index=True, sort=False)
+            market_options = [m for m in ["US", "NSE", "BSE", "Other"] if m in combined50["Market"].unique()]
+            selected_markets = st.multiselect(
+                "Markets दिखाएं",
+                market_options,
+                default=market_options,
+                key="scanner50_market_filter",
+            )
+            search50 = st.text_input(
+                "Symbol / setup / signal खोजें",
+                key="scanner50_search",
+            )
+            visible50 = combined50[combined50["Market"].isin(selected_markets)].copy()
+            if search50.strip():
+                needle50 = search50.strip().lower()
+                mask50 = visible50.astype(str).apply(
+                    lambda column: column.str.lower().str.contains(needle50, regex=False, na=False)
+                ).any(axis=1)
+                visible50 = visible50[mask50]
+
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("Total rows", f"{len(combined50):,}")
+            metric_cols[1].metric("US", f"{int((combined50['Market'] == 'US').sum()):,}")
+            metric_cols[2].metric("NSE", f"{int((combined50['Market'] == 'NSE').sum()):,}")
+            metric_cols[3].metric("BSE", f"{int((combined50['Market'] == 'BSE').sum()):,}")
+            st.dataframe(visible50, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Download Scanner 5.0 combined CSV",
+                visible50.to_csv(index=False).encode("utf-8-sig"),
+                file_name="scanner_5_0_combined_outputs.csv",
+                mime="text/csv",
+                key="download_scanner50_combined",
+            )
+        else:
+            st.warning("Uploaded files से कोई valid Scanner 5.0 rows नहीं मिलीं।")
+    else:
+        st.markdown(
+            "#### Scanner 5.0 में उपलब्ध workflows\n"
+            "- **NSE / BSE:** Daily scanner, 5-minute intraday scanner और 15-minute ORB\n"
+            "- **Market research:** Sector relative strength और F&O futures OI analysis (normalized CSV)\n"
+            "- **Risk tools:** Position sizing, paper portfolio, backtesting और local alerts\n"
+            "- **US workflow:** Existing US scanner, news, entry/exit, risk और day-trading playbook\n"
+            "- **DhanHQ:** Broker data panel और user-confirmed manual order workflow; live orders remain disabled until static-IP safeguards are verified"
+        )
+        st.caption(
+            "JSON outputs बनाने के लिए Scanner 5.0 repository के scanner-core निर्देशों का उपयोग करें; "
+            "फिर यहां एक या अधिक output files upload करें।"
+        )
