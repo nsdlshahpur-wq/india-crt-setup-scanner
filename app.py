@@ -1135,15 +1135,6 @@ with scanner50_tab:
                             & universe50["Type"].eq("Stock")
                         ].drop_duplicates(subset=["Symbol"])
                         market_scan_label50 = f"All {market50} stocks"
-                    # Full exchange universe comes from the existing NSE/BSE security-master
-                    # loader; Yahoo Finance remains the OHLCV data provider.
-                    universe_mode50 = "All NSE EQ stocks" if market50 == "NSE" else "All BSE EQ stocks"
-                    with st.spinner(f"Loading complete {market50} equity universe..."):
-                        universe50 = make_universe(universe_mode50)
-                    universe50 = universe50[
-                        universe50["Symbol"].fillna("").astype(str).str.strip().ne("")
-                        & universe50["Type"].eq("Stock")
-                    ].drop_duplicates(subset=["Symbol"])
                     if universe50.empty:
                         st.error(f"{market50} exchange master से कोई equity symbol नहीं मिला।")
                         st.stop()
