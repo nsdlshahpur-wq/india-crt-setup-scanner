@@ -1098,15 +1098,43 @@ with scanner50_tab:
             market50 = st.selectbox("Exchange", ["NSE", "BSE"], key="s50_exchange")
         with c2:
             mode50 = st.selectbox("Scanner", ["Daily", "Intraday (5-minute + 15-minute ORB)"], key="s50_mode")
-        symbols50 = st.text_input("Optional symbols (comma separated)", placeholder="खाली छोड़ें या ALL / Nifty 50 लिखें = पूरे चुने हुए एक्सचेंज के शेयर", key="s50_symbols")
-        full_universe50 = (not symbols50.strip()) or symbols50.strip().upper() in {"ALL", "ALL STOCKS", "FULL", "FULL UNIVERSE", "NIFTY 50", "NIFTY50", "NSE ALL", "BSE ALL"}
+        scope50 = st.selectbox("Scan Universe", ["All exchange stocks", "Nifty 50", "Custom symbols"], key="s50_scope")
+        symbols50 = st.text_input("Optional symbols (comma separated)", placeholder="RELIANCE,TCS,INFY (Custom symbols चुनने पर)", key="s50_symbols")
+        full_universe50 = scope50 == "All exchange stocks"
+        nifty50_universe = scope50 == "Nifty 50"
         volume50 = st.number_input("Intraday volume multiple", min_value=1.0, max_value=5.0, value=1.5, step=0.1, key="s50_volume")
         run50 = st.button("▶ Run Scanner 5.0", type="primary", key="run_standalone_scanner50")
 
         if run50:
             is_intraday = mode50.startswith("Intraday")
             try:
-                if full_universe50 and not is_intraday:
+                if (full_universe50 or nifty50_universe) and not is_intraday:
+                    # All stocks use the exchange security master; Nifty 50 uses the
+                    # official Nifty constituent CSV. Yahoo Finance supplies OHLCV only.
+                    if nifty50_universe:
+                        if market50 != "NSE":
+                            st.warning("Nifty 50 constituents NSE-listed हैं; इस विकल्प में NSE symbols Yahoo Finance से scan होंगे।")
+                        @st.cache_data(ttl=86400, show_spinner=False)
+                        def _load_nifty50_symbols():
+                            url = "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv"
+                            frame = pd.read_csv(url)
+                            symbol_col = next((col for col in frame.columns if str(col).strip().upper() == "SYMBOL"), None)
+                            if symbol_col is None:
+                                raise ValueError("Nifty 50 constituent file में SYMBOL column नहीं मिला")
+                            symbols = frame[symbol_col].dropna().astype(str).str.strip().str.upper()
+                            return pd.DataFrame({"Symbol": symbols + ".NS", "Name": symbols})
+                        with st.spinner("Nifty 50 की वर्तमान constituent सूची लोड हो रही है..."):
+                            universe50 = _load_nifty50_symbols()
+                        market_scan_label50 = "Nifty 50"
+                    else:
+                        universe_mode50 = "All NSE EQ stocks" if market50 == "NSE" else "All BSE EQ stocks"
+                        with st.spinner(f"Loading complete {market50} equity universe..."):
+                            universe50 = make_universe(universe_mode50)
+                        universe50 = universe50[
+                            universe50["Symbol"].fillna("").astype(str).str.strip().ne("")
+                            & universe50["Type"].eq("Stock")
+                        ].drop_duplicates(subset=["Symbol"])
+                        market_scan_label50 = f"All {market50} stocks"
                     # Full exchange universe comes from the existing NSE/BSE security-master
                     # loader; Yahoo Finance remains the OHLCV data provider.
                     universe_mode50 = "All NSE EQ stocks" if market50 == "NSE" else "All BSE EQ stocks"
@@ -1120,7 +1148,7 @@ with scanner50_tab:
                         st.error(f"{market50} exchange master से कोई equity symbol नहीं मिला।")
                         st.stop()
                     symbols_full50 = universe50["Symbol"].astype(str).tolist()
-                    st.info(f"{market50} में {len(symbols_full50):,} listed equity symbols लोड हुए। Yahoo पर जिनका data उपलब्ध नहीं होगा, वे errors में दिखेंगे।")
+                    st.info(f"{market_scan_label50} में {len(symbols_full50):,} symbols लोड हुए। Yahoo पर जिनका data उपलब्ध नहीं होगा, वे errors में दिखेंगे।")
                     sys.path.insert(0, str(engine_root))
                     import india as scanner50_india
                     with st.spinner(f"Yahoo Finance से {len(symbols_full50):,} shares का Daily OHLC data डाउनलोड हो रहा है..."):
@@ -1161,7 +1189,7 @@ with scanner50_tab:
                     st.session_state["scanner50_live_market"] = market50
                     st.session_state["scanner50_live_mode"] = mode50
                 else:
-                    if full_universe50 and is_intraday:
+                    if (full_universe50 or nifty50_universe) and is_intraday:
                         st.warning("पूरे एक्सचेंज का Intraday scan अभी उपलब्ध नहीं है; Intraday के लिए comma-separated symbols दें। Full-universe Daily scan उपलब्ध है।")
                         st.stop()
                     script_name = (
@@ -1169,7 +1197,7 @@ with scanner50_tab:
                         "india.py" if market50 == "NSE" else
                         "bse_intraday.py" if is_intraday else "bse.py"
                     )
-                    command = [sys.executable, str(engine_root / script_name), "--symbols", symbols50.strip()]
+                    if not symbols50.strip():\n                        st.error("Custom symbols scan के लिए कम से कम एक symbol लिखें।")\n                        st.stop()\n                    command = [sys.executable, str(engine_root / script_name), "--symbols", symbols50.strip()]
                     if market50 == "NSE" and is_intraday:
                         command += ["--volume-multiple", str(volume50)]
                     with tempfile.TemporaryDirectory(prefix="scanner50-") as temp_dir:
