@@ -108,7 +108,7 @@ with scanner_tab:
                 price_map, errors = download_market_data(
                     requested_symbols,
                     period=history_period,
-                    batch_size=80,
+                    batch_size=20,
                     progress_callback=update_progress,
                 )
                 st.session_state["_market_download_cache"] = {
@@ -578,7 +578,7 @@ with backtest_tab:
                      bt_progress.progress(done / max(total, 1), text=f"OHLC download: {done:,}/{total:,}")
                      bt_status.caption(f"Last batch symbol: {last_symbol}")
                  bt_prices, bt_errors = download_market_data(
-                     symbols, period="5y", batch_size=80, progress_callback=bt_download_progress
+                     symbols, period="5y", batch_size=20, progress_callback=bt_download_progress
                  )
                  st.session_state["_all_india_backtest_data"] = {
                      "key": bt_cache_key, "prices": bt_prices, "errors": bt_errors
@@ -1144,7 +1144,7 @@ with scanner50_tab:
                     import india as scanner50_india
                     with st.spinner(f"Yahoo Finance से {len(symbols_full50):,} shares का Daily OHLC data डाउनलोड हो रहा है..."):
                         price_map50, errors_map50 = download_market_data(
-                            symbols_full50, period="3mo", batch_size=60
+                            symbols_full50, period="3mo", batch_size=20
                         )
                     result_rows50 = []
                     for ticker50, frame50 in price_map50.items():
