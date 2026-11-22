@@ -1098,14 +1098,15 @@ with scanner50_tab:
             market50 = st.selectbox("Exchange", ["NSE", "BSE"], key="s50_exchange")
         with c2:
             mode50 = st.selectbox("Scanner", ["Daily", "Intraday (5-minute + 15-minute ORB)"], key="s50_mode")
-        symbols50 = st.text_input("Optional symbols (comma separated)", placeholder="RELIANCE,TCS,INFY या BSE scrip codes", key="s50_symbols")
+        symbols50 = st.text_input("Optional symbols (comma separated)", placeholder="खाली छोड़ें या ALL / Nifty 50 लिखें = पूरे चुने हुए एक्सचेंज के शेयर", key="s50_symbols")
+        full_universe50 = (not symbols50.strip()) or symbols50.strip().upper() in {"ALL", "ALL STOCKS", "FULL", "FULL UNIVERSE", "NIFTY 50", "NIFTY50", "NSE ALL", "BSE ALL"}
         volume50 = st.number_input("Intraday volume multiple", min_value=1.0, max_value=5.0, value=1.5, step=0.1, key="s50_volume")
         run50 = st.button("▶ Run Scanner 5.0", type="primary", key="run_standalone_scanner50")
 
         if run50:
             is_intraday = mode50.startswith("Intraday")
             try:
-                if not symbols50.strip() and not is_intraday:
+                if full_universe50 and not is_intraday:
                     # Full exchange universe comes from the existing NSE/BSE security-master
                     # loader; Yahoo Finance remains the OHLCV data provider.
                     universe_mode50 = "All NSE EQ stocks" if market50 == "NSE" else "All BSE EQ stocks"
@@ -1160,7 +1161,7 @@ with scanner50_tab:
                     st.session_state["scanner50_live_market"] = market50
                     st.session_state["scanner50_live_mode"] = mode50
                 else:
-                    if not symbols50.strip() and is_intraday:
+                    if full_universe50 and is_intraday:
                         st.warning("पूरे एक्सचेंज का Intraday scan अभी उपलब्ध नहीं है; Intraday के लिए comma-separated symbols दें। Full-universe Daily scan उपलब्ध है।")
                         st.stop()
                     script_name = (
@@ -1248,6 +1249,6 @@ with scanner50_tab:
             st.download_button("Download F&O analysis JSON", json.dumps(fo_payload, indent=2).encode("utf-8"), "scanner50_fo_analysis.json", "application/json", key="s50_download_fo")
 
         st.caption(
-            "Data feed: Yahoo Finance unofficial chart endpoint; data delayed/incomplete हो सकता है। "
+            "Data feed: Yahoo Finance via yfinance; data delayed/incomplete हो सकता है और सभी NSE/BSE symbols उपलब्ध हों यह guaranteed नहीं है। "
             "यह research/paper workflow है, buy/sell recommendation नहीं। इस integration में कोई broker order route या auto-trading नहीं है।"
         )
