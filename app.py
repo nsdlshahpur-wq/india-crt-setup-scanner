@@ -4,6 +4,10 @@ from datetime import datetime
 from urllib.parse import quote
 import time
 import json
+import sys
+import subprocess
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -1079,111 +1083,121 @@ with screener_tab:
 
 
 with scanner50_tab:
-    st.header("🚀 Scanner 5.0 · Multi-Market Dashboard")
-    st.caption("US · NSE · BSE | Scanner 5.0 के outputs को इसी Indian CRT Scanner में देखें और compare करें।")
+    st.header("🚀 Scanner 5.0 · Independent Market Engine")
+    st.caption("Standalone NSE / BSE research engine · CRT strategy से पूर्णतः अलग")
 
-    st.info(
-        "यह integrated section Scanner 5.0 के JSON outputs को पढ़ता है। "
-        "यहां upload किए गए outputs को market-wise filter, search और CSV export किया जा सकता है। "
-        "Scanner 5.0 के scan engines अलग से run करके उनकी JSON files यहां upload करें।"
-    )
-
-    scanner50_uploads = st.file_uploader(
-        "Scanner 5.0 JSON outputs upload करें",
-        type=["json"],
-        accept_multiple_files=True,
-        key="scanner50_json_uploads",
-        help="एक साथ US, NSE और BSE की daily/intraday JSON files चुन सकते हैं।",
-    )
-
-    def _scanner50_market(filename: str) -> str:
-        name = filename.lower()
-        if "bse" in name:
-            return "BSE"
-        if "nse" in name or "india" in name:
-            return "NSE"
-        if any(token in name for token in ("us", "nasdaq", "nyse", "sp500", "s&p")):
-            return "US"
-        return "Other"
-
-    def _scanner50_rows(payload):
-        if isinstance(payload, list):
-            rows = payload
-        elif isinstance(payload, dict):
-            rows = payload.get("results", payload.get("signals", payload.get("rows", [])))
-            if isinstance(rows, dict):
-                rows = list(rows.values())
-            if not isinstance(rows, list):
-                rows = [payload] if payload else []
-        else:
-            rows = []
-        return [row for row in rows if isinstance(row, dict)]
-
-    if scanner50_uploads:
-        scanner50_frames, scanner50_errors = [], []
-        for uploaded in scanner50_uploads:
-            try:
-                payload = json.loads(uploaded.getvalue().decode("utf-8-sig"))
-                records = _scanner50_rows(payload)
-                if records:
-                    frame = pd.DataFrame(records)
-                    frame.insert(0, "Market", _scanner50_market(uploaded.name))
-                    frame.insert(1, "Source File", uploaded.name)
-                    scanner50_frames.append(frame)
-                else:
-                    scanner50_errors.append(f"{uploaded.name}: JSON में कोई tabular signal/row नहीं मिला।")
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                scanner50_errors.append(f"{uploaded.name}: invalid JSON ({exc})")
-
-        for error in scanner50_errors:
-            st.warning(error)
-
-        if scanner50_frames:
-            combined50 = pd.concat(scanner50_frames, ignore_index=True, sort=False)
-            market_options = [m for m in ["US", "NSE", "BSE", "Other"] if m in combined50["Market"].unique()]
-            selected_markets = st.multiselect(
-                "Markets दिखाएं",
-                market_options,
-                default=market_options,
-                key="scanner50_market_filter",
-            )
-            search50 = st.text_input(
-                "Symbol / setup / signal खोजें",
-                key="scanner50_search",
-            )
-            visible50 = combined50[combined50["Market"].isin(selected_markets)].copy()
-            if search50.strip():
-                needle50 = search50.strip().lower()
-                mask50 = visible50.astype(str).apply(
-                    lambda column: column.str.lower().str.contains(needle50, regex=False, na=False)
-                ).any(axis=1)
-                visible50 = visible50[mask50]
-
-            metric_cols = st.columns(4)
-            metric_cols[0].metric("Total rows", f"{len(combined50):,}")
-            metric_cols[1].metric("US", f"{int((combined50['Market'] == 'US').sum()):,}")
-            metric_cols[2].metric("NSE", f"{int((combined50['Market'] == 'NSE').sum()):,}")
-            metric_cols[3].metric("BSE", f"{int((combined50['Market'] == 'BSE').sum()):,}")
-            st.dataframe(visible50, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Download Scanner 5.0 combined CSV",
-                visible50.to_csv(index=False).encode("utf-8-sig"),
-                file_name="scanner_5_0_combined_outputs.csv",
-                mime="text/csv",
-                key="download_scanner50_combined",
-            )
-        else:
-            st.warning("Uploaded files से कोई valid Scanner 5.0 rows नहीं मिलीं।")
+    engine_root = Path(__file__).resolve().parent / "scanner5_engine" / "trader-india"
+    if not engine_root.exists():
+        st.error("Scanner 5.0 engine files नहीं मिले। Repository deployment में scanner5_engine/trader-india मौजूद होना चाहिए।")
     else:
+        st.success("Standalone Scanner 5.0 engine loaded · CRT modules / CRT signals का कोई import या dependency नहीं।")
+        st.markdown("इस tab में scan वास्तविक Scanner 5.0 के vendored engine scripts से चलता है; केवल JSON upload viewer नहीं है।")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            market50 = st.selectbox("Exchange", ["NSE", "BSE"], key="s50_exchange")
+        with c2:
+            mode50 = st.selectbox("Scanner", ["Daily", "Intraday (5-minute + 15-minute ORB)"], key="s50_mode")
+        symbols50 = st.text_input("Optional symbols (comma separated)", placeholder="RELIANCE,TCS,INFY या BSE scrip codes", key="s50_symbols")
+        volume50 = st.number_input("Intraday volume multiple", min_value=1.0, max_value=5.0, value=1.5, step=0.1, key="s50_volume")
+        run50 = st.button("▶ Run Scanner 5.0", type="primary", key="run_standalone_scanner50")
+
+        if run50:
+            is_intraday = mode50.startswith("Intraday")
+            script_name = (
+                "intraday.py" if market50 == "NSE" and is_intraday else
+                "india.py" if market50 == "NSE" else
+                "bse_intraday.py" if is_intraday else "bse.py"
+            )
+            universe_name = "universe.csv" if market50 == "NSE" else "bse-universe.csv"
+            command = [sys.executable, str(engine_root / script_name)]
+            if symbols50.strip():
+                command += ["--symbols", symbols50.strip()]
+            else:
+                command += ["--universe", str(engine_root / universe_name)]
+            if market50 == "NSE" and is_intraday:
+                command += ["--volume-multiple", str(volume50)]
+            with tempfile.TemporaryDirectory(prefix="scanner50-") as temp_dir:
+                output_file = Path(temp_dir) / "scanner50-results.json"
+                command += ["--output", str(output_file)]
+                with st.spinner(f"Scanner 5.0 {market50} {mode50} scan चल रहा है..."):
+                    try:
+                        completed = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+                        st.code(" ".join(command[:-2]), language="bash")
+                        if completed.stdout:
+                            st.text(completed.stdout[-6000:])
+                        if completed.stderr:
+                            st.warning(completed.stderr[-4000:])
+                        if output_file.exists():
+                            payload50 = json.loads(output_file.read_text(encoding="utf-8"))
+                            st.session_state["scanner50_live_payload"] = payload50
+                            st.session_state["scanner50_live_market"] = market50
+                            st.session_state["scanner50_live_mode"] = mode50
+                        elif completed.returncode != 0:
+                            st.error(f"Scanner process failed (exit code {completed.returncode}).")
+                        else:
+                            st.warning("Scan completed, but no JSON result file was produced.")
+                    except subprocess.TimeoutExpired:
+                        st.error("Scan में 15 मिनट से अधिक समय लगा और process रोक दिया गया। Symbols की छोटी सूची से दोबारा प्रयास करें।")
+                    except Exception as exc:
+                        st.exception(exc)
+
+        payload50 = st.session_state.get("scanner50_live_payload")
+        if payload50:
+            st.subheader(f"{st.session_state.get('scanner50_live_market', '')} · {st.session_state.get('scanner50_live_mode', '')} results")
+            result_rows50 = payload50.get("results", payload50.get("signals", []))
+            if isinstance(result_rows50, list) and result_rows50:
+                result_df50 = pd.json_normalize(result_rows50, sep=".")
+                st.metric("Scanned records", len(result_df50))
+                st.dataframe(result_df50, use_container_width=True, hide_index=True)
+                st.download_button(
+                    "⬇️ Download Scanner 5.0 results (JSON)",
+                    json.dumps(payload50, ensure_ascii=False, indent=2).encode("utf-8"),
+                    file_name="scanner_5_0_results.json",
+                    mime="application/json",
+                    key="download_scanner50_live_json",
+                )
+            else:
+                st.info("इस scan में कोई matching result नहीं मिला।")
+            if payload50.get("errors"):
+                with st.expander(f"Data errors ({len(payload50['errors'])})"):
+                    st.dataframe(pd.json_normalize(payload50["errors"]), use_container_width=True, hide_index=True)
+            if payload50.get("data_warning"):
+                st.warning(payload50["data_warning"])
+            if payload50.get("warning"):
+                st.warning(payload50["warning"])
+
+        st.divider()
+        st.subheader("Scanner 5.0 के अन्य स्वतंत्र tools")
         st.markdown(
-            "#### Scanner 5.0 में उपलब्ध workflows\n"
-            "- **NSE / BSE:** Daily scanner, 5-minute intraday scanner और 15-minute ORB\n"
-            "- **Market research:** Sector relative strength और F&O futures OI analysis (normalized CSV)\n"
-            "- **Risk tools:** Position sizing, paper portfolio, backtesting और local alerts\n"
-            "- **US workflow:** Existing US scanner, news, entry/exit, risk और day-trading playbook\n"
-            "- **DhanHQ:** Broker data panel और user-confirmed manual order workflow; live orders remain disabled until static-IP safeguards are verified"
+            "- **Sector strength:** NSE/BSE sector relative-strength snapshots (sectors.py)"
+            "\n- **F&O:** normalized NSE futures bhavcopy CSV से OI buildup analysis (derivatives.py)"
+            "\n- **Risk & paper trading:** position sizing, paper ledger, mark-to-market और stop alerts (paper.py, portfolio.py)"
+            "\n- **Research:** daily-bar baseline backtesting और local JSON alerts (backtest.py, alerts.py)"
         )
+        fo_file50 = st.file_uploader("NSE F&O normalized CSV (optional)", type=["csv"], key="s50_fo_csv")
+        if fo_file50 and st.button("Analyze F&O / OI", key="s50_run_fo"):
+            with tempfile.TemporaryDirectory(prefix="scanner50-fo-") as temp_dir:
+                input_csv = Path(temp_dir) / "fo.csv"
+                output_json = Path(temp_dir) / "fo-analysis.json"
+                input_csv.write_bytes(fo_file50.getvalue())
+                proc = subprocess.run(
+                    [sys.executable, str(engine_root / "derivatives.py"), "--csv", str(input_csv), "--output", str(output_json)],
+                    capture_output=True, text=True, timeout=120, check=False,
+                )
+                if output_json.exists():
+                    fo_payload = json.loads(output_json.read_text(encoding="utf-8"))
+                    st.session_state["scanner50_fo_payload"] = fo_payload
+                if proc.stderr:
+                    st.warning(proc.stderr[-3000:])
+                if proc.returncode:
+                    st.error(proc.stdout[-3000:] or "F&O analysis failed.")
+        fo_payload = st.session_state.get("scanner50_fo_payload")
+        if fo_payload:
+            st.json(fo_payload)
+            st.download_button("Download F&O analysis JSON", json.dumps(fo_payload, indent=2).encode("utf-8"), "scanner50_fo_analysis.json", "application/json", key="s50_download_fo")
+
         st.caption(
-            "JSON outputs बनाने के लिए Scanner 5.0 repository के scanner-core निर्देशों का उपयोग करें; "
-            "फिर यहां एक या अधिक output files upload करें।"
+            "Data feed: Yahoo Finance unofficial chart endpoint; data delayed/incomplete हो सकता है। "
+            "यह research/paper workflow है, buy/sell recommendation नहीं। इस integration में कोई broker order route या auto-trading नहीं है।"
         )
