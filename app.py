@@ -20,6 +20,7 @@ from backtest import BacktestConfig, run_backtest
 from universe import make_universe
 from mtf_analysis import analyze_mtf_symbol
 from multi_symbol_scanner import scan_symbols
+from algo_research import ALGO_NAMES, backtest_algo
 
 st.set_page_config(page_title="India CRT Setup Scanner", page_icon="📈", layout="wide")
 st.title("🇮🇳 India CRT Setup Scanner")
@@ -46,7 +47,7 @@ with st.sidebar:
         "incomplete, or unavailable. The scanner is read-only and does not place orders."
     )
 
-scanner_tab, backtest_tab, mtf_tab, screener_tab, scanner50_tab = st.tabs(["📊 Dashboard", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener", "🚀 Scanner 5.0"]) 
+scanner_tab, backtest_tab, mtf_tab, screener_tab, scanner50_tab, algo_research_tab = st.tabs(["📊 Dashboard", "📈 Backtest", "🧭 CRT MTF Analysis", "🔎 Multi-Symbol Screener", "🚀 Scanner 5.0", "🧪 Algo Research"]) 
 
 with scanner_tab:
     col_a, col_b = st.columns([1, 4])
@@ -1287,3 +1288,117 @@ with scanner50_tab:
             "Data feed: Yahoo Finance via yfinance; data delayed/incomplete हो सकता है और सभी NSE/BSE symbols उपलब्ध हों यह guaranteed नहीं है। "
             "यह research/paper workflow है, buy/sell recommendation नहीं। इस integration में कोई broker order route या auto-trading नहीं है।"
         )
+
+
+with algo_research_tab:
+    st.header("🧪 Scanner 5.0 · Algo Research Lab")
+    st.caption("Index-only strategy research · Yahoo Finance historical OHLC · no broker execution")
+    st.info(
+        "यह module mapped Indian indices पर technical strategies का historical research backtest करता है। "
+        "Signals को अगले trading session के Open पर execute मानकर simulation होती है; charges और slippage शामिल हैं। "
+        "Index results research benchmark हैं, सीधे investable instrument के returns नहीं।"
+    )
+    with st.spinner("Yahoo-mapped Indian indices सूची लोड हो रही है..."):
+        index_universe = make_universe("All Indian indices")
+    index_universe = index_universe[
+        index_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
+    ].drop_duplicates(subset=["Symbol"]).copy()
+    if index_universe.empty:
+        st.error("Yahoo Finance mapping वाली कोई index सूची उपलब्ध नहीं है।")
+    else:
+        index_names = dict(zip(index_universe["Symbol"], index_universe["Name"]))
+        index_symbols = sorted(index_names, key=lambda symbol: str(index_names[symbol]).upper())
+        selected_index = st.selectbox(
+            "Select Indian index",
+            index_symbols,
+            format_func=lambda symbol: f"{index_names[symbol]} ({symbol})",
+            key="algo_research_index",
+        )
+        selected_algos = st.multiselect(
+            "Select algorithms to compare",
+            ALGO_NAMES,
+            default=ALGO_NAMES,
+            key="algo_research_strategies",
+        )
+        r1, r2, r3 = st.columns(3)
+        with r1:
+            algo_period = st.selectbox("Historical period", ["1y", "2y", "3y", "5y"], index=3, key="algo_research_period")
+        with r2:
+            algo_charges = st.number_input("Charges (bps / side)", min_value=0.0, max_value=100.0, value=12.0, step=1.0, key="algo_research_charges")
+        with r3:
+            algo_slippage = st.number_input("Slippage (bps / side)", min_value=0.0, max_value=100.0, value=5.0, step=1.0, key="algo_research_slippage")
+        run_algo_research = st.button("▶ Run Algo Research", type="primary", key="run_algo_research")
+        if run_algo_research:
+            if not selected_algos:
+                st.warning("कम से कम एक algorithm चुनें।")
+            else:
+                try:
+                    cached_algo = st.session_state.get("_algo_index_data", {})
+                    cache_key = (selected_index, algo_period)
+                    if cached_algo.get("key") == cache_key and selected_index in cached_algo.get("prices", {}):
+                        algo_prices = cached_algo["prices"][selected_index]
+                        st.success("इस index का पहले डाउनलोड किया गया Yahoo data इस्तेमाल हो रहा है।")
+                    else:
+                        with st.spinner(f"{index_names[selected_index]} का {algo_period} Yahoo OHLC डाउनलोड हो रहा है..."):
+                            fetched, fetch_errors = download_market_data([selected_index], period=algo_period, batch_size=1)
+                        if selected_index not in fetched:
+                            st.error(fetch_errors.get(selected_index, "Yahoo Finance से OHLC data नहीं मिला।"))
+                            st.stop()
+                        algo_prices = fetched[selected_index]
+                        st.session_state["_algo_index_data"] = {"key": cache_key, "prices": {selected_index: algo_prices}}
+                    summaries = []
+                    trade_frames = {}
+                    curves = {}
+                    for algo_name in selected_algos:
+                        summary, trade_frame, curve = backtest_algo(
+                            algo_prices, algo_name,
+                            charges_bps_per_side=float(algo_charges),
+                            slippage_bps_per_side=float(algo_slippage),
+                        )
+                        summaries.append(summary)
+                        trade_frames[algo_name] = trade_frame
+                        curves[algo_name] = curve
+                    st.session_state["algo_research_results"] = {
+                        "index": selected_index, "index_name": index_names[selected_index],
+                        "period": algo_period, "summaries": pd.DataFrame(summaries),
+                        "trades": trade_frames, "curves": curves,
+                    }
+                except Exception as exc:
+                    st.exception(exc)
+        research_result = st.session_state.get("algo_research_results")
+        if research_result and research_result.get("index") == selected_index:
+            st.divider()
+            st.subheader(f"Results · {research_result['index_name']} · {research_result['period']}")
+            summary_df = research_result["summaries"].sort_values("Total Return %", ascending=False)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+            fig = go.Figure()
+            for algo_name, curve in research_result["curves"].items():
+                if not curve.empty:
+                    fig.add_trace(go.Scatter(x=curve["Date"], y=curve["Strategy Equity"], mode="lines", name=algo_name))
+            first_curve = next(iter(research_result["curves"].values()), pd.DataFrame())
+            if not first_curve.empty:
+                fig.add_trace(go.Scatter(x=first_curve["Date"], y=first_curve["Benchmark"], mode="lines", name="Buy & Hold benchmark", line={"dash": "dot"}))
+            fig.update_layout(title="Strategy equity comparison (starting at 1.0)", yaxis_title="Growth of ₹1", xaxis_title="Date")
+            st.plotly_chart(fig, use_container_width=True)
+            algo_detail = st.selectbox("Trade log", list(research_result["trades"]), key="algo_trade_log_select")
+            trade_log = research_result["trades"][algo_detail]
+            st.dataframe(trade_log, use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Download Algo Research Summary CSV",
+                summary_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"algo_research_{selected_index.replace('^','')}.csv",
+                mime="text/csv",
+                key="download_algo_research_summary",
+            )
+            st.download_button(
+                "⬇️ Download selected Algo Trade Log CSV",
+                trade_log.to_csv(index=False).encode("utf-8"),
+                file_name=f"algo_trades_{algo_detail.lower().replace(' ','_')}.csv",
+                mime="text/csv",
+                key="download_algo_trade_log",
+            )
+    st.caption(
+        "Research-only: ये सामान्य technical rules हैं, optimized या profitable होने का दावा नहीं। "
+        "Yahoo data unofficial/delayed/incomplete हो सकता है। Results में survivorship, index methodology, "
+        "taxes, funding, derivatives basis और real execution effects पूरी तरह शामिल नहीं हैं।"
+    )
