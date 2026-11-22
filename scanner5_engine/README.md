@@ -18,7 +18,7 @@ The Streamlit tab launches these scripts as separate Python processes:
 - BSE daily: `scanner5_engine/trader-india/bse.py`
 - BSE intraday: `scanner5_engine/trader-india/bse_intraday.py`
 
-Optional research tools are also included: sector snapshots, normalized NSE F&O futures OI analysis, position sizing, paper portfolio, daily-bar backtest and local alerts.
+Additional independent US workflow modules are included under trader-scanner, trader-news, trader-entry, trader-exit, trader-timemachine, trader-risk, trader-budget, trader-broker, trader-alerts, trader-analyst and trader-pelosi. The day-trading orchestrator skill and playbook are also included. India research tools include sector snapshots, normalized NSE F&O futures OI analysis, position sizing, paper portfolio, daily-bar backtest and local alerts.
 
 ## Data and trading limitations
 
