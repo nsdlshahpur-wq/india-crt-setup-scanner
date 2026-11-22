@@ -15,6 +15,7 @@ ALGO_NAMES = [
     "20-Day Momentum",
     "Volume Breakout",
     "EMA 20 + RSI Trend Filter",
+    "Confluence Combo (10-Indicator)",
 ]
 
 
@@ -67,7 +68,7 @@ def build_signals(data: pd.DataFrame) -> dict[str, pd.Series]:
     upper, lower = sma20 + 2 * std, sma20 - 2 * std
     prior_high, prior_low = high.shift(1).rolling(20).max(), low.shift(1).rolling(20).min()
     vol_avg = volume.shift(1).rolling(20).mean()
-    return {
+    signal_map = {
         "SMA 20/50 Crossover": pd.Series(np.where(sma20 > sma50, 1, -1), index=frame.index),
         "EMA 9/21 Crossover": pd.Series(np.where(ema9 > ema21, 1, -1), index=frame.index),
         "RSI 14 Mean Reversion": pd.Series(np.select([rsi < 30, rsi > 70], [1, -1], default=0), index=frame.index),
@@ -79,6 +80,26 @@ def build_signals(data: pd.DataFrame) -> dict[str, pd.Series]:
         "Volume Breakout": pd.Series(np.select([(close > prior_high) & (volume > vol_avg * 1.5), (close < prior_low) & (volume > vol_avg * 1.5)], [1, -1], default=0), index=frame.index),
         "EMA 20 + RSI Trend Filter": pd.Series(np.select([(close > ema20) & (rsi > 50), (close < ema20) & (rsi < 50)], [1, -1], default=0), index=frame.index),
     }
+    # Weighted confluence: five core trend votes plus five confirmations.
+    trend_long = ((sma20 > sma50).astype(int) + (ema9 > ema21).astype(int)
+        + (macd > macd_signal).astype(int) + (_supertrend(frame) > 0).astype(int)
+        + ((close > ema20) & (rsi > 50)).astype(int))
+    trend_short = ((sma20 < sma50).astype(int) + (ema9 < ema21).astype(int)
+        + (macd < macd_signal).astype(int) + (_supertrend(frame) < 0).astype(int)
+        + ((close < ema20) & (rsi < 50)).astype(int))
+    confirm_long = ((close > close.shift(20)).astype(int)
+        + ((rsi >= 50) & (rsi <= 68)).astype(int) + (close > prior_high).astype(int)
+        + ((close > upper) & (volume > vol_avg * 1.2)).astype(int)
+        + ((close > sma20) & (close > ema20)).astype(int))
+    confirm_short = ((close < close.shift(20)).astype(int)
+        + ((rsi <= 50) & (rsi >= 32)).astype(int) + (close < prior_low).astype(int)
+        + ((close < lower) & (volume > vol_avg * 1.2)).astype(int)
+        + ((close < sma20) & (close < ema20)).astype(int))
+    combo = pd.Series(0, index=frame.index, dtype=int)
+    combo.loc[(trend_long >= 4) & (confirm_long >= 3) & ((trend_long * 2 + confirm_long) >= 11)] = 1
+    combo.loc[(trend_short >= 4) & (confirm_short >= 3) & ((trend_short * 2 + confirm_short) >= 11)] = -1
+    signal_map["Confluence Combo (10-Indicator)"] = combo
+    return signal_map
 
 
 def backtest_algo(data: pd.DataFrame, algo_name: str, charges_bps_per_side: float = 12.0, slippage_bps_per_side: float = 5.0) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
@@ -124,12 +145,25 @@ def backtest_algo(data: pd.DataFrame, algo_name: str, charges_bps_per_side: floa
     peak = equity.cummax()
     drawdown = (equity / peak - 1) * 100
     trade_frame = pd.DataFrame(entries)
-    wins = int((trade_frame.get("Gross Return %", pd.Series(dtype=float)) > 0).sum())
-    closed = int((trade_frame.get("Status", pd.Series(dtype=str)) == "CLOSED").sum())
+    if not trade_frame.empty:
+        round_trip_cost_pct = 2 * friction * 100
+        trade_frame["Net Return %"] = trade_frame["Gross Return %"] - round_trip_cost_pct
+        closed_net = trade_frame.loc[trade_frame["Status"] == "CLOSED", "Net Return %"]
+        wins = int((closed_net > 0).sum())
+        gross_profit = float(closed_net[closed_net > 0].sum())
+        gross_loss = float(abs(closed_net[closed_net < 0].sum()))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
+        expectancy = float(closed_net.mean()) if len(closed_net) else 0.0
+    else:
+        wins, profit_factor, expectancy = 0, 0.0, 0.0
+        trade_frame["Net Return %"] = pd.Series(dtype=float)
+        closed_net = pd.Series(dtype=float)
+    closed = len(closed_net)
     summary = {
         "Algo": algo_name, "Total Return %": total_return, "CAGR %": cagr,
         "Max Drawdown %": float(drawdown.min()) if len(drawdown) else 0.0,
         "Win Rate %": wins / max(closed, 1) * 100,
+        "Profit Factor": profit_factor, "Expectancy / Trade %": expectancy,
         "Trades": len(trade_frame), "Closed Trades": closed,
         "Exposure %": float((desired != 0).mean() * 100) if len(desired) else 0.0,
         "Benchmark Return %": (float(benchmark.iloc[-1]) - 1) * 100 if len(benchmark) else 0.0,
