@@ -1190,7 +1190,8 @@ with scanner50_tab:
                     )
                     if not symbols50.strip():
                         st.error("Custom symbols scan के लिए कम से कम एक symbol लिखें।")
-                        st.stop()\n                    command = [sys.executable, str(engine_root / script_name), "--symbols", symbols50.strip()]
+                        st.stop()
+                    command = [sys.executable, str(engine_root / script_name), "--symbols", symbols50.strip()]
                     if market50 == "NSE" and is_intraday:
                         command += ["--volume-multiple", str(volume50)]
                     with tempfile.TemporaryDirectory(prefix="scanner50-") as temp_dir:
