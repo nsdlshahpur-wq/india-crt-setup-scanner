@@ -569,7 +569,7 @@ with backtest_tab:
              bt_status = st.empty()
              symbols = bse_universe["Symbol"].tolist()
              bt_cache_key = ("ALL_INDIA_STOCKS_INDICES", "5y", tuple(symbols))
-             cached = st.session_state.get("_bse_backtest_data")
+             cached = st.session_state.get("_all_india_backtest_data")
              if cached and cached.get("key") == bt_cache_key:
                  bt_prices, bt_errors = cached["prices"], cached["errors"]
                  bt_progress.progress(1.0, text=f"Using cached data for {len(bt_prices):,} symbols")
