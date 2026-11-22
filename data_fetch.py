@@ -77,16 +77,17 @@ def _download(tickers: list[str], period: str) -> pd.DataFrame:
         group_by="ticker",
         auto_adjust=False,
         actions=False,
-        threads=len(tickers) > 1,
+        # Sequential ticker handling avoids yfinance's internal thread fan-out.
+        threads=False,
         progress=False,
-        timeout=25,
+        timeout=35,
     )
 
 
 def download_market_data(
     symbols: list[str],
     period: str = "3y",
-    batch_size: int = 80,
+    batch_size: int = 20,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
     """Download daily OHLC in batches.
@@ -112,8 +113,10 @@ def download_market_data(
         batch_data = pd.DataFrame()
         batch_error = ""
 
-        # One batch attempt for broad market scans; one retry for small lists.
-        attempts = 1 if large_universe else 2
+        # Retry transient Yahoo throttling with exponential backoff. For a
+        # broad universe, never fan out into thousands of individual retries.
+        attempts = 4 if large_universe else 2
+        rate_limited = False
         for attempt in range(attempts):
             try:
                 batch_data = _download(yahoo_symbols, period)
@@ -122,8 +125,12 @@ def download_market_data(
                 batch_error = "Yahoo Finance returned an empty batch response"
             except Exception as exc:
                 batch_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+            rate_limited = rate_limited or any(
+                token in batch_error.lower()
+                for token in ("429", "too many requests", "rate limit", "ratelimit")
+            )
             if attempt + 1 < attempts:
-                time.sleep(0.5)
+                time.sleep(min(30, 3 * (2 ** attempt)) if large_universe else 1.5)
 
         missing: list[str] = []
         for requested in batch:
@@ -137,8 +144,16 @@ def download_market_data(
                 missing.append(requested)
 
         if large_universe:
-            # Do not fan out into one or two HTTP requests for every missing
-            # ticker: that is the main cause of long waits on 9k-symbol scans.
+            # Stop after a likely Yahoo throttle instead of continuing to hammer it.
+            if rate_limited or (batch_data is None or batch_data.empty):
+                stop_reason = "Yahoo Finance rate limit suspected (HTTP 429 / empty batch). Scan paused; retry after cooldown or scan a smaller group."
+                for requested in missing:
+                    errors[requested] = f"Yahoo ticker {resolved[requested]}: {stop_reason}"
+                for remaining in unique[start + len(batch):]:
+                    errors[remaining] = stop_reason
+                if progress_callback:
+                    progress_callback(total, total, batch[-1] if batch else "")
+                break
             for requested in missing:
                 errors[requested] = (
                     f"Yahoo ticker {resolved[requested]} was not present in its batch response. "
@@ -175,6 +190,6 @@ def download_market_data(
         # A small inter-batch pause helps avoid hammering Yahoo without adding
         # a large fixed delay across the 100+ batches of a full-market scan.
         if start + len(batch) < total:
-            time.sleep(0.08)
+            time.sleep(1.0)
 
     return data_map, errors
