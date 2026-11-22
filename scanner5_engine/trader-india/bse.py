@@ -19,27 +19,9 @@ def bse_ticker(symbol):
     return symbol+".BO"
 
 def fetch_bse_chart(symbol,interval="1d",range_="3mo",timeout=20):
-    ticker=bse_ticker(symbol)
-    query=urllib.parse.urlencode({"range":range_,"interval":interval,"events":"div,splits"})
-    request=urllib.request.Request(india.YAHOO_CHART.format(ticker=urllib.parse.quote(ticker))+"?"+query,
-      headers={"User-Agent":india.USER_AGENT})
-    with urllib.request.urlopen(request,timeout=timeout) as response:payload=json.loads(response.read().decode("utf-8"))
-    chart=payload.get("chart",{})
-    if chart.get("error"):raise RuntimeError(str(chart["error"]))
-    results=chart.get("result") or []
-    if not results:raise RuntimeError("No chart data returned for "+ticker)
-    result=results[0];timestamps=result.get("timestamp") or []
-    quote=(result.get("indicators",{}).get("quote") or [{}])[0];bars=[]
-    for i,stamp in enumerate(timestamps):
-        def at(key):
-            values=quote.get(key) or []
-            return values[i] if i<len(values) else None
-        if at("close") is None:continue
-        local=dt.datetime.fromtimestamp(stamp,dt.timezone.utc).astimezone(IST)
-        bars.append({"time":local.isoformat(),"open":at("open"),"high":at("high"),"low":at("low"),
-          "close":at("close"),"volume":at("volume") or 0})
-    if not bars:raise RuntimeError("No usable bars for "+ticker)
-    return bars
+    """Fetch BSE OHLCV from the same Yahoo Finance source via yfinance."""
+    return india.fetch_yahoo_ticker(bse_ticker(symbol), interval=interval, range_=range_, timeout=timeout)
+
 
 def load_bse_universe(path):
     import csv
