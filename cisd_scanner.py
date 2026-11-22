@@ -290,7 +290,7 @@ def _resample_crt_bars(five: pd.DataFrame, rule: str) -> pd.DataFrame:
     if rule == "1D":
         return frame.groupby(frame.index.date).agg(
             {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
-        ).set_axis(pd.to_datetime(sorted(frame.index.date)))
+        ).set_axis(pd.to_datetime(sorted(set(frame.index.date))))
     daily = _resample_crt_bars(five, "1D")
     if daily.empty:
         return daily
