@@ -68,12 +68,12 @@ def _extract_one(downloaded: pd.DataFrame, ticker: str) -> pd.DataFrame:
     return data.dropna(subset=needed)
 
 
-def _download(tickers: list[str], period: str) -> pd.DataFrame:
+def _download(tickers: list[str], period: str, interval: str = "1d") -> pd.DataFrame:
     """Download one bounded ticker batch from Yahoo Finance."""
     return yf.download(
         tickers=tickers if len(tickers) > 1 else tickers[0],
         period=period,
-        interval="1d",
+        interval=interval,
         group_by="ticker",
         auto_adjust=False,
         actions=False,
@@ -89,8 +89,9 @@ def download_market_data(
     period: str = "3y",
     batch_size: int = 20,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    interval: str = "1d",
 ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
-    """Download daily OHLC in batches.
+    """Download OHLC in batches.
 
     For >100 symbols, a failed/missing ticker is reported rather than triggering
     a serial request per ticker. This avoids thousands of slow Yahoo requests.
@@ -119,7 +120,7 @@ def download_market_data(
         rate_limited = False
         for attempt in range(attempts):
             try:
-                batch_data = _download(yahoo_symbols, period)
+                batch_data = _download(yahoo_symbols, period, interval)
                 if batch_data is not None and not batch_data.empty:
                     break
                 batch_error = "Yahoo Finance returned an empty batch response"
@@ -166,7 +167,7 @@ def download_market_data(
                 last_error = batch_error or "Yahoo Finance returned no OHLC rows"
                 for attempt in range(2):
                     try:
-                        single = _download([yahoo_symbol], period)
+                        single = _download([yahoo_symbol], period, interval)
                         extracted = _extract_one(single, yahoo_symbol)
                         if extracted.empty:
                             extracted = _extract_one(single, requested)
