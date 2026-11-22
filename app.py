@@ -553,22 +553,39 @@ with backtest_tab:
      with b4:
          bt_slippage = st.number_input("Slippage (bps / side)", min_value=0.0, max_value=100.0, value=5.0, step=1.0, key="bt_slippage")
      st.caption("Default cost assumption: 12 bps charges + 5 bps slippage on each side. Adjust these to your broker and execution conditions.")
-     run_bt = st.button("▶️ Run 5-Year Full-Market Backtest", type="primary", key="run_bse_backtest")
+     bt_scope = st.selectbox(
+         "Backtest scope",
+         ["One stock at a time", "Full market (all stocks + indices)"],
+         index=0, key="bt_scope",
+         help="One-stock mode reduces Yahoo Finance requests and helps avoid HTTP 429 rate limits."
+     )
+     bt_universe = make_universe("All India stocks + indices")
+     bt_universe = bt_universe[
+         bt_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
+     ].drop_duplicates(subset=["Symbol"]).copy()
+     if bt_universe.empty:
+         st.error("India stock/index universe उपलब्ध नहीं है।")
+         st.stop()
+     bt_symbol_map = dict(zip(bt_universe["Symbol"], bt_universe["Name"]))
+     if bt_scope == "One stock at a time":
+         bt_symbol_options = sorted(bt_symbol_map.keys(), key=lambda symbol: str(bt_symbol_map.get(symbol, symbol)).upper())
+         bt_selected_symbol = st.selectbox(
+             "Select stock / index", bt_symbol_options,
+             format_func=lambda symbol: f"{bt_symbol_map.get(symbol, symbol)} ({symbol})",
+             key="bt_single_symbol"
+         )
+         symbols = [bt_selected_symbol]
+         st.caption("एक शेयर/इंडेक्स का 5-year backtest चलेगा। अगला शेयर चुनकर फिर Run दबाएँ।")
+     else:
+         symbols = bt_universe["Symbol"].tolist()
+         st.warning(f"Full-market mode में {len(symbols):,} symbols के लिए Yahoo rate-limit (429) आ सकता है।")
+     run_bt = st.button("▶️ Run 5-Year Backtest", type="primary", key="run_bse_backtest")
      if run_bt:
          try:
-             with st.spinner("All India stock + index universe लोड हो रहा है..."):
-                 bse_universe = make_universe("All India stocks + indices")
-             bse_universe = bse_universe[
-                 bse_universe["Symbol"].fillna("").astype(str).str.strip().ne("")
-             ].drop_duplicates(subset=["Symbol"]).copy()
-             if bse_universe.empty:
-                 st.error("All India stock/index universe उपलब्ध नहीं है। NSE/BSE security masters जाँचें।")
-                 st.stop()
-             st.write(f"Current India stock/index symbols in exchange masters: **{len(bse_universe):,}**")
+             st.write(f"Backtest symbols: **{len(symbols):,}**")
              bt_progress = st.progress(0.0, text="Downloading 5-year daily OHLC...")
              bt_status = st.empty()
-             symbols = bse_universe["Symbol"].tolist()
-             bt_cache_key = ("ALL_INDIA_STOCKS_INDICES", "5y", tuple(symbols))
+             bt_cache_key = (bt_scope, "5y", tuple(symbols))
              cached = st.session_state.get("_all_india_backtest_data")
              if cached and cached.get("key") == bt_cache_key:
                  bt_prices, bt_errors = cached["prices"], cached["errors"]
@@ -576,43 +593,39 @@ with backtest_tab:
              else:
                  def bt_download_progress(done, total, last_symbol):
                      bt_progress.progress(done / max(total, 1), text=f"OHLC download: {done:,}/{total:,}")
-                     bt_status.caption(f"Last batch symbol: {last_symbol}")
+                     bt_status.caption(f"Last processed symbol: {last_symbol}")
                  bt_prices, bt_errors = download_market_data(
-                     symbols, period="5y", batch_size=20, progress_callback=bt_download_progress
+                     symbols, period="5y", batch_size=1 if len(symbols) == 1 else 20,
+                     progress_callback=bt_download_progress
                  )
                  st.session_state["_all_india_backtest_data"] = {
                      "key": bt_cache_key, "prices": bt_prices, "errors": bt_errors
                  }
              if not bt_prices:
-                 st.error("Yahoo Finance से कोई India market OHLC data नहीं मिला।")
+                 st.error("Yahoo Finance से इस symbol / universe का historical OHLC data नहीं मिला।")
+                 for symbol, reason in list(bt_errors.items())[:10]:
+                     st.write(f"{symbol}: {reason}")
                  st.stop()
-             st.info(f"Historical OHLC received for **{len(bt_prices):,}** symbols. अब daily as-of CRT simulation चल रहा है।")
+             st.info(f"Historical OHLC received for **{len(bt_prices):,}** symbols. अब no-look-ahead CRT simulation चलेगा।")
              sim_progress = st.progress(0.0, text="Running no-look-ahead simulation...")
              sim_status = st.empty()
              def bt_scan_progress(done, total, last_symbol):
                  sim_progress.progress(done / max(total, 1), text=f"Historical simulation: {done:,}/{total:,} symbols")
                  sim_status.caption(f"Last processed: {last_symbol}")
-             name_map = dict(zip(bse_universe["Symbol"], bse_universe["Name"]))
-             scan_cfg = ScanConfig(
-                 pivot_left=int(pivot_left), pivot_right=int(pivot_right),
-                 entry_valid_days=int(entry_valid_days)
-             )
+             name_map = {symbol: bt_symbol_map.get(symbol, symbol) for symbol in symbols}
+             scan_cfg = ScanConfig(pivot_left=int(pivot_left), pivot_right=int(pivot_right), entry_valid_days=int(entry_valid_days))
              bt_result = run_backtest(
                  bt_prices, names=name_map,
-                 config=BacktestConfig(
-                     initial_capital=float(bt_capital), risk_pct=float(bt_risk),
-                     charges_bps_per_side=float(bt_charges),
-                     slippage_bps_per_side=float(bt_slippage)
-                 ),
-                 scan_config=scan_cfg,
-                 progress_callback=bt_scan_progress
+                 config=BacktestConfig(initial_capital=float(bt_capital), risk_pct=float(bt_risk), charges_bps_per_side=float(bt_charges), slippage_bps_per_side=float(bt_slippage)),
+                 scan_config=scan_cfg, progress_callback=bt_scan_progress
              )
              st.session_state["bse_backtest_result"] = bt_result
              st.session_state["bse_backtest_meta"] = {
-                 "universe_count": len(bse_universe), "data_count": len(bt_prices),
-                 "download_errors": len(bt_errors),
+                 "scope": bt_scope, "symbols": symbols, "universe_count": len(symbols),
+                 "data_count": len(bt_prices), "download_errors": len(bt_errors),
                  "scan_settings": (int(pivot_left), int(pivot_right), int(entry_valid_days)),
              }
+             st.session_state["bse_backtest_errors"] = bt_errors
              st.rerun()
          except Exception as exc:
              st.exception(exc)
@@ -625,7 +638,7 @@ with backtest_tab:
          curve = bt["equity_curve"]
          st.divider()
          st.caption(
-             f"Universe: {meta.get('universe_count', 0):,} current India stock/index listings · "
+             f"Scope: {meta.get('scope', '—')} · Symbols: {meta.get('universe_count', 0):,} · "
              f"Data received: {meta.get('data_count', 0):,} · "
              f"Download errors: {meta.get('download_errors', 0):,} · "
              f"Candidates found: {bt.get('candidate_count', 0):,}"
