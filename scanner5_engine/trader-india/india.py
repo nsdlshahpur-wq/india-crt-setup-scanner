@@ -19,6 +19,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
+import yfinance as yf
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
@@ -32,35 +34,56 @@ def yahoo_ticker(symbol):
     return symbol + ".NS"
 
 
+def fetch_yahoo_ticker(ticker, interval="1d", range_="3mo", timeout=20):
+    """Fetch OHLCV from Yahoo Finance through yfinance's session/cookie handling.
+
+    This remains Yahoo Finance data; yfinance is an unofficial client. A small
+    retry/backoff is used for transient Yahoo throttling and session failures.
+    """
+    last_error = None
+    for attempt in range(3):
+        try:
+            frame = yf.Ticker(ticker).history(
+                period=range_, interval=interval, auto_adjust=False,
+                actions=False, timeout=timeout, raise_errors=True
+            )
+            if frame is None or frame.empty:
+                raise RuntimeError("Yahoo Finance returned no rows for " + ticker)
+            bars = []
+            for stamp, row in frame.iterrows():
+                close = row.get("Close")
+                if close is None or not math.isfinite(float(close)):
+                    continue
+                stamp = stamp.to_pydatetime() if hasattr(stamp, "to_pydatetime") else stamp
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=IST)
+                local = stamp.astimezone(IST)
+                def value(key):
+                    item = row.get(key)
+                    if item is None:
+                        return None
+                    try:
+                        number = float(item)
+                        return number if math.isfinite(number) else None
+                    except (TypeError, ValueError):
+                        return None
+                bars.append({
+                    "time": local.isoformat(), "open": value("Open"),
+                    "high": value("High"), "low": value("Low"),
+                    "close": value("Close"), "volume": value("Volume") or 0
+                })
+            if not bars:
+                raise RuntimeError("Yahoo Finance returned no usable OHLCV bars for " + ticker)
+            return bars
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError("Yahoo Finance fetch failed for {0} after 3 attempts: {1}".format(ticker, last_error))
+
+
 def fetch_chart(symbol, interval="1d", range_="3mo", timeout=20):
-    ticker = yahoo_ticker(symbol)
-    query = urllib.parse.urlencode({"range": range_, "interval": interval, "events": "div,splits"})
-    req = urllib.request.Request(YAHOO_CHART.format(ticker=urllib.parse.quote(ticker)) + "?" + query,
-                                 headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    chart = payload.get("chart", {})
-    if chart.get("error"):
-        raise RuntimeError(str(chart["error"]))
-    results = chart.get("result") or []
-    if not results:
-        raise RuntimeError("No chart data returned for " + ticker)
-    result = results[0]
-    timestamps = result.get("timestamp") or []
-    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
-    bars = []
-    for i, stamp in enumerate(timestamps):
-        def at(key):
-            values = quote.get(key) or []
-            return values[i] if i < len(values) else None
-        if at("close") is None:
-            continue
-        local_time = dt.datetime.fromtimestamp(stamp, dt.timezone.utc).astimezone(IST)
-        bars.append({"time": local_time.isoformat(), "open": at("open"), "high": at("high"),
-                     "low": at("low"), "close": at("close"), "volume": at("volume") or 0})
-    if not bars:
-        raise RuntimeError("No usable bars for " + ticker)
-    return bars
+    return fetch_yahoo_ticker(yahoo_ticker(symbol), interval=interval, range_=range_, timeout=timeout)
 
 
 def load_universe(path):
