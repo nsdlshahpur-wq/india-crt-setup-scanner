@@ -3,15 +3,22 @@ import pandas as pd
 import multi_symbol_scanner as multi
 
 
-def test_scan_symbol_delegates_to_all_five_configured_pairs(monkeypatch):
+def test_scan_symbol_delegates_to_all_configured_crt_models(monkeypatch):
     expected = pd.DataFrame([
-        {"HTF → LTF": spec["HTF"] + " → " + spec["LTF"], "Signal": "WAIT"}
+        {
+            "CRT Timeframe": spec["CRT"],
+            "HTF → LTF": f"{spec['CRT']} → 15M CISD → 5M Entry",
+            "Signal": "WAIT",
+        }
         for spec in multi.PAIR_SPECS
     ])
     monkeypatch.setattr(multi, "analyze_mtf_symbol", lambda symbol: (expected, {}))
     frame, errors = multi.scan_symbol("RELIANCE.NS")
-    assert len(frame) == 5
-    assert list(frame["HTF → LTF"]) == [x["HTF"] + " → " + x["LTF"] for x in multi.PAIR_SPECS]
+    assert len(frame) == len(multi.PAIR_SPECS) == 4
+    assert list(frame["CRT Timeframe"]) == [spec["CRT"] for spec in multi.PAIR_SPECS]
+    assert list(frame["HTF → LTF"]) == [
+        f"{spec['CRT']} → 15M CISD → 5M Entry" for spec in multi.PAIR_SPECS
+    ]
     assert errors == {}
 
 
