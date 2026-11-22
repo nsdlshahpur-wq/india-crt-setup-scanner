@@ -87,14 +87,16 @@ def build_signals(data: pd.DataFrame) -> dict[str, pd.Series]:
     trend_short = ((sma20 < sma50).astype(int) + (ema9 < ema21).astype(int)
         + (macd < macd_signal).astype(int) + (_supertrend(frame) < 0).astype(int)
         + ((close < ema20) & (rsi < 50)).astype(int))
+    # Index feeds often have no meaningful volume. Treat missing volume as neutral.
+    volume_available = bool((volume > 0).any())
+    volume_long = ((close > upper) & (volume > vol_avg * 1.2)).astype(int) if volume_available else pd.Series(0, index=frame.index)
+    volume_short = ((close < lower) & (volume > vol_avg * 1.2)).astype(int) if volume_available else pd.Series(0, index=frame.index)
     confirm_long = ((close > close.shift(20)).astype(int)
         + ((rsi >= 50) & (rsi <= 68)).astype(int) + (close > prior_high).astype(int)
-        + ((close > upper) & (volume > vol_avg * 1.2)).astype(int)
-        + ((close > sma20) & (close > ema20)).astype(int))
+        + volume_long + ((close > sma20) & (close > ema20)).astype(int))
     confirm_short = ((close < close.shift(20)).astype(int)
         + ((rsi <= 50) & (rsi >= 32)).astype(int) + (close < prior_low).astype(int)
-        + ((close < lower) & (volume > vol_avg * 1.2)).astype(int)
-        + ((close < sma20) & (close < ema20)).astype(int))
+        + volume_short + ((close < sma20) & (close < ema20)).astype(int))
     combo = pd.Series(0, index=frame.index, dtype=int)
     combo.loc[(trend_long >= 4) & (confirm_long >= 3) & ((trend_long * 2 + confirm_long) >= 11)] = 1
     combo.loc[(trend_short >= 4) & (confirm_short >= 3) & ((trend_short * 2 + confirm_short) >= 11)] = -1
@@ -111,7 +113,7 @@ def backtest_algo(data: pd.DataFrame, algo_name: str, charges_bps_per_side: floa
     # A signal observed at today's close is acted on at the next trading day's open.
     desired = signals.shift(1).fillna(0).astype(int)
     open_price = pd.to_numeric(frame["Open"], errors="coerce")
-    daily_returns = desired.shift(1).fillna(0) * open_price.pct_change().fillna(0)
+    daily_returns = desired * open_price.pct_change().fillna(0)
     # Include overnight/open-to-open return after the position is active.
     changes = desired.diff().fillna(desired.iloc[0] if len(desired) else 0)
     friction = (charges_bps_per_side + slippage_bps_per_side) / 10000.0
