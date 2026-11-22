@@ -16,6 +16,10 @@ ALGO_NAMES = [
     "Volume Breakout",
     "EMA 20 + RSI Trend Filter",
     "Confluence Combo (10-Indicator)",
+    "DAY: VWAP Reclaim",
+    "DAY: Opening Range Breakout (30m)",
+    "DAY: EMA 9/21 Intraday Cross",
+    "DAY: RSI + VWAP Trend",
 ]
 
 
@@ -101,6 +105,42 @@ def build_signals(data: pd.DataFrame) -> dict[str, pd.Series]:
     combo.loc[(trend_long >= 4) & (confirm_long >= 3) & ((trend_long * 2 + confirm_long) >= 11)] = 1
     combo.loc[(trend_short >= 4) & (confirm_short >= 3) & ((trend_short * 2 + confirm_short) >= 11)] = -1
     signal_map["Confluence Combo (10-Indicator)"] = combo
+
+    # Intraday-only strategies. Session VWAP and opening range reset each exchange day.
+    session_key = pd.Index(frame.index.date)
+    typical = (high + low + close) / 3
+    pv = typical * volume
+    cumulative_pv = pv.groupby(session_key).cumsum()
+    cumulative_volume = volume.groupby(session_key).cumsum().replace(0, np.nan)
+    vwap = cumulative_pv / cumulative_volume
+    ema9_i = close.ewm(span=9, adjust=False).mean()
+    ema21_i = close.ewm(span=21, adjust=False).mean()
+    rsi_i = _rsi(close, 14)
+    vwap_reclaim = pd.Series(np.select(
+        [(close > vwap) & (close.shift(1) <= vwap.shift(1)) & (ema9_i > ema21_i),
+         (close < vwap) & (close.shift(1) >= vwap.shift(1)) & (ema9_i < ema21_i)],
+        [1, -1], default=0), index=frame.index)
+    bar_number = pd.Series(np.arange(len(frame)), index=frame.index).groupby(session_key).cumcount()
+    opening_high = high.groupby(session_key).transform(lambda s: s.iloc[:6].max())
+    opening_low = low.groupby(session_key).transform(lambda s: s.iloc[:6].min())
+    orb = pd.Series(np.select(
+        [(bar_number >= 6) & (close > opening_high) & (ema9_i > ema21_i),
+         (bar_number >= 6) & (close < opening_low) & (ema9_i < ema21_i)],
+        [1, -1], default=0), index=frame.index)
+    ema_cross = pd.Series(np.select(
+        [(ema9_i > ema21_i) & (ema9_i.shift(1) <= ema21_i.shift(1)),
+         (ema9_i < ema21_i) & (ema9_i.shift(1) >= ema21_i.shift(1))],
+        [1, -1], default=0), index=frame.index)
+    rsi_vwap = pd.Series(np.select(
+        [(close > vwap) & (rsi_i.between(50, 68)) & (ema9_i > ema21_i),
+         (close < vwap) & (rsi_i.between(32, 50)) & (ema9_i < ema21_i)],
+        [1, -1], default=0), index=frame.index)
+    signal_map.update({
+        "DAY: VWAP Reclaim": vwap_reclaim,
+        "DAY: Opening Range Breakout (30m)": orb,
+        "DAY: EMA 9/21 Intraday Cross": ema_cross,
+        "DAY: RSI + VWAP Trend": rsi_vwap,
+    })
     return signal_map
 
 
