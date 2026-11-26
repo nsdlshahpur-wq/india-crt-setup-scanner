@@ -62,9 +62,9 @@ def _bar_close_time(timestamp: pd.Timestamp, timeframe: str) -> pd.Timestamp:
         return stamp + pd.Timedelta(timeframe)
     if timeframe in {"1h", "4h"}:
         return min(stamp + pd.Timedelta(timeframe), day_close)
-    if timeframe == "Daily":
+    if timeframe == "daily":
         return day_close
-    if timeframe == "Weekly":
+    if timeframe == "weekly":
         friday = stamp.normalize() + pd.Timedelta(days=(4 - stamp.weekday()) % 7)
         return friday + pd.Timedelta(hours=15, minutes=30)
     return stamp
