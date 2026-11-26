@@ -46,25 +46,53 @@ def clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
     data = data[required].copy()
     data.index = pd.to_datetime(data.index)
     if getattr(data.index, "tz", None) is not None:
-        data.index = data.index.tz_localize(None)
+        # Normalize provider timestamps to NSE local time before making them
+        # timezone-naive; dropping UTC directly shifts every CRT boundary.
+        data.index = data.index.tz_convert("Asia/Kolkata").tz_localize(None)
     return data[~data.index.duplicated(keep="last")].sort_index().apply(
         pd.to_numeric, errors="coerce"
     ).dropna()
 
 
-def closed_bars(frame: pd.DataFrame) -> pd.DataFrame:
+def _bar_close_time(timestamp: pd.Timestamp, timeframe: str) -> pd.Timestamp:
+    """Return the expected close timestamp for an NSE candle."""
+    stamp = pd.Timestamp(timestamp)
+    timeframe = str(timeframe).strip().lower()
+    day_close = stamp.normalize() + pd.Timedelta(hours=15, minutes=30)
+    if timeframe in {"5m", "15m"}:
+        return stamp + pd.Timedelta(timeframe)
+    if timeframe in {"1h", "4h"}:
+        return min(stamp + pd.Timedelta(timeframe), day_close)
+    if timeframe == "daily":
+        return day_close
+    if timeframe == "weekly":
+        friday = stamp.normalize() + pd.Timedelta(days=(4 - stamp.weekday()) % 7)
+        return friday + pd.Timedelta(hours=15, minutes=30)
+    return stamp
+
+
+def closed_bars(frame: pd.DataFrame, timeframe: str | None = None) -> pd.DataFrame:
+    """Keep every candle whose NSE close time has passed; don't drop a valid last bar."""
     data = clean_ohlc(frame)
-    # Conservatively exclude the latest possibly-forming candle.
-    return data.iloc[:-1] if len(data) > 1 else pd.DataFrame()
+    if data.empty or timeframe is None:
+        return data
+    now = pd.Timestamp.now(tz="Asia/Kolkata").tz_localize(None)
+    close_times = pd.DatetimeIndex([_bar_close_time(ts, timeframe) for ts in data.index])
+    return data.loc[close_times <= now]
 
 
 def resample_ohlc(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Build NSE-session aligned 4H bars (09:15 start; final bar ends 15:30)."""
     data = clean_ohlc(frame)
     if data.empty:
         return data
-    return data.resample(rule, label="right", closed="right").agg({
-        "Open": "first", "High": "max", "Low": "min", "Close": "last"
-    }).dropna()
+    data = data.between_time("09:15", "15:29")
+    result = data.resample(
+        rule, origin="start_day", offset="9h15min",
+        label="left", closed="left"
+    ).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+    result = result.dropna()
+    return result
 
 
 def download(ticker: str, period: str, interval: str) -> pd.DataFrame:
@@ -90,7 +118,7 @@ def _atr(frame: pd.DataFrame, length: int = 14) -> float:
 
 def _find_15m_cisd(frame: pd.DataFrame, direction: int) -> dict[str, Any]:
     """CISD: body close through the open of the preceding opposing delivery run."""
-    data = closed_bars(frame)
+    data = closed_bars(frame, "15m")
     if len(data) < 4:
         return {"confirmed": False, "time": None, "line": None, "status": "WAIT 15M CISD"}
     for i in range(1, len(data)):
@@ -125,7 +153,7 @@ def _find_15m_cisd(frame: pd.DataFrame, direction: int) -> dict[str, Any]:
 
 def _find_5m_fvg_retest(frame: pd.DataFrame, direction: int, cisd_time) -> dict[str, Any]:
     """Find a post-CISD three-candle FVG and a later confirmed retest candle."""
-    data = closed_bars(frame)
+    data = closed_bars(frame, "5m")
     if data.empty or cisd_time is None:
         return {"confirmed": False, "status": "WAIT 5M ENTRY", "entry": None,
                 "entry_time": None, "fvg_low": None, "fvg_high": None}
@@ -168,7 +196,7 @@ def analyze_crt_cisd_pair(crt_frame: pd.DataFrame, m15: pd.DataFrame,
                           m5: pd.DataFrame, duration: str,
                           crt_name: str) -> dict[str, Any]:
     htf_all = clean_ohlc(crt_frame)
-    htf = closed_bars(htf_all)
+    htf = closed_bars(htf_all, crt_name)
     empty = {
         "CRT Timeframe": crt_name, "CRT M1 High": None, "CRT M1 Low": None,
         "CRT M2 High": None, "CRT M2 Low": None, "CRT M2 Close": None,
@@ -193,8 +221,8 @@ def analyze_crt_cisd_pair(crt_frame: pd.DataFrame, m15: pd.DataFrame,
         "CRT M1 High": round(m1_high, 2), "CRT M1 Low": round(m1_low, 2),
         "CRT M2 High": round(m2_high, 2), "CRT M2 Low": round(m2_low, 2),
         "CRT M2 Close": round(m2_close, 2), "CRT Close": round(m2_close, 2),
-        "15M Close": round(float(closed_bars(m15).Close.iloc[-1]), 2) if not closed_bars(m15).empty else None,
-        "5M Close": round(float(closed_bars(m5).Close.iloc[-1]), 2) if not closed_bars(m5).empty else None,
+        "15M Close": round(float(closed_bars(m15, "15m").Close.iloc[-1]), 2) if not closed_bars(m15, "15m").empty else None,
+        "5M Close": round(float(closed_bars(m5, "5m").Close.iloc[-1]), 2) if not closed_bars(m5, "5m").empty else None,
     }
     if swept_low and swept_high:
         return {**empty, **marked, "CRT Sweep": "DOUBLE SWEEP — REJECTED",
@@ -207,7 +235,7 @@ def analyze_crt_cisd_pair(crt_frame: pd.DataFrame, m15: pd.DataFrame,
     direction = 1 if swept_low else -1
     side = "BULLISH" if direction == 1 else "BEARISH"
     # Start lower-timeframe confirmation only after the M2 CRT candle is complete.
-    m2_end = htf.index[-1] + pd.Timedelta(duration)
+    m2_end = _bar_close_time(htf.index[-1], crt_name)
     m15_after = clean_ohlc(m15)
     m15_after = m15_after[m15_after.index >= m2_end]
     cisd = _find_15m_cisd(m15_after, direction)
