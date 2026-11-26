@@ -57,6 +57,7 @@ def clean_ohlc(frame: pd.DataFrame) -> pd.DataFrame:
 def _bar_close_time(timestamp: pd.Timestamp, timeframe: str) -> pd.Timestamp:
     """Return the expected close timestamp for an NSE candle."""
     stamp = pd.Timestamp(timestamp)
+    timeframe = str(timeframe).strip().lower()
     day_close = stamp.normalize() + pd.Timedelta(hours=15, minutes=30)
     if timeframe in {"5m", "15m"}:
         return stamp + pd.Timedelta(timeframe)
@@ -117,7 +118,7 @@ def _atr(frame: pd.DataFrame, length: int = 14) -> float:
 
 def _find_15m_cisd(frame: pd.DataFrame, direction: int) -> dict[str, Any]:
     """CISD: body close through the open of the preceding opposing delivery run."""
-    data = closed_bars(frame)
+    data = closed_bars(frame, "15m")
     if len(data) < 4:
         return {"confirmed": False, "time": None, "line": None, "status": "WAIT 15M CISD"}
     for i in range(1, len(data)):
@@ -152,7 +153,7 @@ def _find_15m_cisd(frame: pd.DataFrame, direction: int) -> dict[str, Any]:
 
 def _find_5m_fvg_retest(frame: pd.DataFrame, direction: int, cisd_time) -> dict[str, Any]:
     """Find a post-CISD three-candle FVG and a later confirmed retest candle."""
-    data = closed_bars(frame)
+    data = closed_bars(frame, "5m")
     if data.empty or cisd_time is None:
         return {"confirmed": False, "status": "WAIT 5M ENTRY", "entry": None,
                 "entry_time": None, "fvg_low": None, "fvg_high": None}
